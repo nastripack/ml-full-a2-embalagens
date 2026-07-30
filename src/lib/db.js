@@ -12,7 +12,7 @@ export async function upsertProduto(db, lojaId, item) {
 
   if (existente) {
     await db.prepare(
-      `UPDATE produtos SET sku = ?, nome = ?, categoria = ?, tipo_envio = ?, status = ?,
+      `UPDATE produtos SET sku = ?, nome = ?, categoria = ?, tipo_envio = ?, status = ?, inventory_id = ?,
        peso_gramas = ?, altura_cm = ?, largura_cm = ?, comprimento_cm = ?, atualizado_em = datetime('now')
        WHERE loja_id = ? AND mlb = ?`
     ).bind(
@@ -21,6 +21,7 @@ export async function upsertProduto(db, lojaId, item) {
       item.category_id || null,
       item.shipping?.logistic_type || null,
       item.status || null,
+      item.inventory_id || null,
       dims.peso_gramas,
       dims.altura_cm,
       dims.largura_cm,
@@ -32,12 +33,13 @@ export async function upsertProduto(db, lojaId, item) {
   }
 
   const inserted = await db.prepare(
-    `INSERT INTO produtos (loja_id, sku, mlb, nome, categoria, tipo_envio, status, peso_gramas, altura_cm, largura_cm, comprimento_cm)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO produtos (loja_id, sku, mlb, inventory_id, nome, categoria, tipo_envio, status, peso_gramas, altura_cm, largura_cm, comprimento_cm)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     lojaId,
     item.seller_custom_field || null,
     item.id,
+    item.inventory_id || null,
     item.title,
     item.category_id || null,
     item.shipping?.logistic_type || null,
@@ -82,6 +84,29 @@ export async function inserirVenda(db, lojaId, produtoId, pedido, item) {
     valorBruto,
     comissao,
     valorLiquido
+  ).run();
+}
+
+export async function inserirEstoque(db, lojaId, produtoId, stock) {
+  await db.prepare(
+    `INSERT INTO estoque_historico (loja_id, produto_id, estoque_full, reservado)
+     VALUES (?, ?, ?, ?)`
+  ).bind(lojaId, produtoId, stock.total ?? null, stock.not_available_quantity ?? null).run();
+}
+
+export async function inserirEnvio(db, lojaId, produtoId, operacao) {
+  const inboundId = operacao.external_references?.find(r => r.type === "inbound_id")?.value;
+  const remessa = inboundId || String(operacao.id);
+
+  await db.prepare(
+    `INSERT OR IGNORE INTO envios (loja_id, produto_id, data, remessa, quantidade_enviada)
+     VALUES (?, ?, ?, ?, ?)`
+  ).bind(
+    lojaId,
+    produtoId,
+    operacao.date_created,
+    remessa,
+    operacao.detail?.available_quantity ?? null
   ).run();
 }
 

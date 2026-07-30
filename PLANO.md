@@ -90,5 +90,15 @@ O aplicativo único no Mercado Livre Developers (`client_id 426032379212172`) j�
 - Controle de acesso ao site (login/senha próprio) — adiado a pedido do usuário.
 - Motor Analítico/comparativos mais sofisticados (tendência, projeção) — Fase 2.
 
+## Fase 1 fechada por completo: estoque e remessas
+
+Revisão própria identificou que a Fase 1 estava incompleta: as tabelas `estoque_historico` e `envios` existiam no schema mas nunca eram alimentadas. Como a Fase 2 (Planejador Inteligente de Envios) depende diretamente desses dados, foram implementadas antes de avançar:
+
+- **Estoque**: `GET /inventories/{inventory_id}/stock/fulfillment` (o `inventory_id` vem no item, campo `inventory_id`, adicionado a `produtos` via migração `0003_estoque_envios.sql`). Uma chamada por produto, sem custo extra de multiget.
+- **Remessas**: `GET /stock/fulfillment/operations/search?type=INBOUND_RECEPTION` — descoberto via busca na documentação oficial (não estava óbvio via tentativa e erro). Requer `seller_id`, `inventory_id`, `date_from`/`date_to` (máx. 60 dias). Tem quota própria bem restrita — a sincronização limita a 8 produtos por execução com pausa entre chamadas, revezando quais produtos checar a cada rodada (round-robin pelos que estão há mais tempo sem verificação).
+- **Lacuna conhecida**: custo de transporte da remessa (`valor_transporte`) e transportadora não são fornecidos por nenhum endpoint da API do ML — ficará null até definirmos outra fonte (ou entrada manual).
+
+Verificado em produção: 69 registros reais em `estoque_historico`, sem mais erros de quota após o ajuste.
+
 ## Próxima fase (não iniciada)
 Fase 2 do roadmap do PRS: Motor Analítico (médias ponderadas, cobertura de estoque), Planejador Inteligente de Envios, Projeção de Vendas.

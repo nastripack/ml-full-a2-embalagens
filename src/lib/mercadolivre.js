@@ -121,3 +121,22 @@ export async function getOrdersSearch(accessToken, sellerId, fromDate) {
 export async function getShipment(accessToken, shipmentId) {
   return apiGet(accessToken, `/shipments/${shipmentId}`);
 }
+
+// Estoque atual no Full para um produto (por inventory_id).
+export async function getStockFulfillment(accessToken, inventoryId) {
+  return apiGet(accessToken, `/inventories/${inventoryId}/stock/fulfillment`);
+}
+
+// Historico de remessas recebidas no Full (operacoes do tipo INBOUND_RECEPTION) para um produto.
+// date_from/date_to sao obrigatorios e o intervalo nao pode passar de 60 dias.
+export async function getInboundReceptions(accessToken, sellerId, inventoryId, fromDate, toDate) {
+  const params = new URLSearchParams({
+    seller_id: sellerId,
+    inventory_id: inventoryId,
+    type: "INBOUND_RECEPTION",
+    date_from: fromDate,
+    date_to: toDate
+  });
+  const data = await apiGet(accessToken, `/stock/fulfillment/operations/search?${params.toString()}`);
+  return data.results || [];
+}

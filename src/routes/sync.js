@@ -1,14 +1,23 @@
-import { getValidAccessToken, getItemsMultiget, searchUserItems, getOrdersSearch } from "../lib/mercadolivre.js";
-import { upsertProduto, inserirVenda, registrarEvento } from "../lib/db.js";
+import {
+  getValidAccessToken, getItemsMultiget, searchUserItems, getOrdersSearch,
+  getStockFulfillment, getInboundReceptions
+} from "../lib/mercadolivre.js";
+import { upsertProduto, inserirVenda, inserirEstoque, inserirEnvio, registrarEvento } from "../lib/db.js";
 
 const JANELA_VENDAS_DIAS = 60;
 const MAX_PAGINAS_POR_EXECUCAO = 5; // 5 paginas x (1 search + 3 multiget) = ~20 subrequests, com folga do limite do Worker
+const MAX_ITENS_ESTOQUE_POR_EXECUCAO = 8; // limitado pelo quota proprio e mais restrito do endpoint de remessas
+const PAUSA_ENTRE_REMESSAS_MS = 1200;
+
+function esperar(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   const db = env.DB;
   const accessToken = await getValidAccessToken(db, env, lojaId);
 
-  const resumo = { skus_atualizados: 0, vendas_analisadas: 0, erros: [] };
+  const resumo = { skus_atualizados: 0, vendas_analisadas: 0, estoque_atualizado: 0, remessas_encontradas: 0, erros: [] };
 
   // 1. Sincroniza produtos do Full - em lotes, com multiget, respeitando o limite de subrequests do Worker
   let offset = offsetInicial;
@@ -40,8 +49,10 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
     resumo.aviso = `Sincronizados ate offset ${offset} de ${totalDisponivel} produtos. Chame de novo com offset=${offset} para continuar.`;
   }
 
-  // 2. Sincroniza vendas dos ultimos 60 dias (paginado)
   const desde = new Date(Date.now() - JANELA_VENDAS_DIAS * 24 * 60 * 60 * 1000).toISOString();
+  const ate = new Date().toISOString();
+
+  // 2. Sincroniza vendas dos ultimos 60 dias (paginado)
   try {
     const pedidos = await getOrdersSearch(accessToken, lojaId, desde);
     for (const pedido of pedidos.results || []) {
@@ -59,6 +70,35 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
     }
   } catch (err) {
     resumo.erros.push(`pedidos: ${err.message}`);
+  }
+
+  // 3. Estoque e remessas ao Full - so os produtos ha mais tempo sem checar (round-robin entre execucoes)
+  const produtosParaChecar = await db.prepare(
+    `SELECT p.id, p.mlb, p.inventory_id
+     FROM produtos p
+     LEFT JOIN (SELECT produto_id, MAX(data_hora) as ultima FROM estoque_historico GROUP BY produto_id) e ON e.produto_id = p.id
+     WHERE p.loja_id = ? AND p.inventory_id IS NOT NULL
+     ORDER BY e.ultima ASC
+     LIMIT ?`
+  ).bind(lojaId, MAX_ITENS_ESTOQUE_POR_EXECUCAO).all();
+
+  let primeiro = true;
+  for (const produto of produtosParaChecar.results || []) {
+    try {
+      const stock = await getStockFulfillment(accessToken, produto.inventory_id);
+      await inserirEstoque(db, lojaId, produto.id, stock);
+      resumo.estoque_atualizado++;
+
+      if (!primeiro) await esperar(PAUSA_ENTRE_REMESSAS_MS);
+      primeiro = false;
+      const remessas = await getInboundReceptions(accessToken, lojaId, produto.inventory_id, desde, ate);
+      for (const remessa of remessas) {
+        await inserirEnvio(db, lojaId, produto.id, remessa);
+        resumo.remessas_encontradas++;
+      }
+    } catch (err) {
+      resumo.erros.push(`estoque/remessas ${produto.mlb}: ${err.message}`);
+    }
   }
 
   await registrarEvento(db, lojaId, "sincronizacao_concluida", null, resumo, "worker_sync");
