@@ -1,0 +1,21 @@
+name = "ml-full-a2-embalagens"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+[vars]
+ML_CLIENT_ID = "426032379212172"
+ML_REDIRECT_URI = "https://full.nastripack.com.br/auth/callback"
+ALERT_EMAIL_TO = "andrenastri@gmail.com"
+
+[triggers]
+crons = ["0 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ml-full-a2-embalagens-db"
+database_id = "9a3b708a-1f7f-459a-970e-c59734240f2b"
+
+[[routes]]
+pattern = "full.nastripack.com.br"
+custom_domain = true

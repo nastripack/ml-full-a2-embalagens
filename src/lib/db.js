@@ -1,0 +1,92 @@
+export async function upsertLoja(db, lojaId, nickname) {
+  await db.prepare(
+    `INSERT INTO lojas (loja_id, nickname) VALUES (?, ?)
+     ON CONFLICT(loja_id) DO UPDATE SET nickname = excluded.nickname`
+  ).bind(lojaId, nickname).run();
+}
+
+export async function upsertProduto(db, lojaId, item) {
+  const existente = await db.prepare("SELECT id FROM produtos WHERE loja_id = ? AND mlb = ?").bind(lojaId, item.id).first();
+
+  const dims = parseDimensions(item.shipping?.dimensions);
+
+  if (existente) {
+    await db.prepare(
+      `UPDATE produtos SET sku = ?, nome = ?, categoria = ?, tipo_envio = ?, status = ?,
+       peso_gramas = ?, altura_cm = ?, largura_cm = ?, comprimento_cm = ?, atualizado_em = datetime('now')
+       WHERE loja_id = ? AND mlb = ?`
+    ).bind(
+      item.seller_custom_field || null,
+      item.title,
+      item.category_id || null,
+      item.shipping?.logistic_type || null,
+      item.status || null,
+      dims.peso_gramas,
+      dims.altura_cm,
+      dims.largura_cm,
+      dims.comprimento_cm,
+      lojaId,
+      item.id
+    ).run();
+    return existente.id;
+  }
+
+  const inserted = await db.prepare(
+    `INSERT INTO produtos (loja_id, sku, mlb, nome, categoria, tipo_envio, status, peso_gramas, altura_cm, largura_cm, comprimento_cm)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    lojaId,
+    item.seller_custom_field || null,
+    item.id,
+    item.title,
+    item.category_id || null,
+    item.shipping?.logistic_type || null,
+    item.status || null,
+    dims.peso_gramas,
+    dims.altura_cm,
+    dims.largura_cm,
+    dims.comprimento_cm
+  ).run();
+
+  return inserted.meta.last_row_id;
+}
+
+function parseDimensions(dimensions) {
+  // Formato do Mercado Livre: "altura x largura x comprimento, peso"
+  if (!dimensions) return { peso_gramas: null, altura_cm: null, largura_cm: null, comprimento_cm: null };
+  const match = /^(\d+)x(\d+)x(\d+),(\d+)$/.exec(dimensions);
+  if (!match) return { peso_gramas: null, altura_cm: null, largura_cm: null, comprimento_cm: null };
+  const [, altura, largura, comprimento, peso] = match;
+  return {
+    altura_cm: Number(altura) / 10,
+    largura_cm: Number(largura) / 10,
+    comprimento_cm: Number(comprimento) / 10,
+    peso_gramas: Number(peso)
+  };
+}
+
+export async function inserirVenda(db, lojaId, produtoId, pedido, item) {
+  const valorBruto = item.unit_price * item.quantity;
+  const comissao = pedido.sale_fee || 0;
+  const valorLiquido = valorBruto - comissao;
+
+  await db.prepare(
+    `INSERT OR IGNORE INTO vendas (loja_id, pedido_id, produto_id, data_hora, quantidade, valor_bruto, comissao, valor_liquido)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    lojaId,
+    String(pedido.id),
+    produtoId,
+    pedido.date_created,
+    item.quantity,
+    valorBruto,
+    comissao,
+    valorLiquido
+  ).run();
+}
+
+export async function registrarEvento(db, lojaId, tipo, produtoId, payload, origem) {
+  await db.prepare(
+    "INSERT INTO eventos (loja_id, tipo, produto_id, payload_json, origem) VALUES (?, ?, ?, ?, ?)"
+  ).bind(lojaId, tipo, produtoId ?? null, JSON.stringify(payload), origem).run();
+}

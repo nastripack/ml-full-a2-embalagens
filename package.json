@@ -1,0 +1,17 @@
+{
+  "name": "ml-full-a2-embalagens",
+  "version": "1.0.0",
+  "description": "Copiloto operacional para Mercado Livre Full - A2 Embalagens",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "^4.103.0"
+  }
+}
