@@ -140,3 +140,9 @@ export async function getInboundReceptions(accessToken, sellerId, inventoryId, f
   const data = await apiGet(accessToken, `/stock/fulfillment/operations/search?${params.toString()}`);
   return data.results || [];
 }
+
+// Visitas de um item num periodo (so aceita 1 item por chamada). Datas no formato YYYY-MM-DD.
+export async function getItemVisits(accessToken, itemId, fromDate, toDate) {
+  const data = await apiGet(accessToken, `/items/visits?ids=${itemId}&date_from=${fromDate}&date_to=${toDate}`);
+  return data[0] || null;
+}

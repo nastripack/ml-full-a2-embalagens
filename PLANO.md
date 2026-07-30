@@ -100,5 +100,14 @@ Revisão própria identificou que a Fase 1 estava incompleta: as tabelas `estoqu
 
 Verificado em produção: 69 registros reais em `estoque_historico`, sem mais erros de quota após o ajuste.
 
+## Fase 2 — Motor Analítico, Planejador de Envios, Projeção de Vendas (concluída)
+
+Mesmo padrão da Fase 1: revisão própria encontrou que `performance_historico` (visitas/conversão) também nunca era alimentada, apesar de a seção 12.4 do PRS exigir isso pro Planejador priorizar corretamente. Fechado antes de considerar a fase completa.
+
+- **Visitas**: `GET /items/visits?ids={1 item}&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD` — descoberto via busca (a doc geral menciona multiget, mas essa conta/app aceita só 1 item por chamada). Sem quota especial observada. `conversao`, `impressoes` e `posicao` não são gravados (não existem via API pública ou seriam recalculados sob demanda).
+- **Motor Analítico** (`src/lib/analytics.js`): média diária ponderada por janela (7d=40%, 15d=30%, 30d=20%, 31-60d=10%, seção 8.2), classificação de tendência, cobertura em dias, classificação de prioridade (crítico/alto/médio/não enviar conforme RB-001/002/003), sugestão de quantidade de envio, projeção de vendas para 30 dias.
+- **Bug real encontrado e corrigido antes de fechar a fase**: produtos sem nenhuma venda no histórico (média diária = 0) estavam sendo classificados como "Crítico" só por terem estoque zerado — o que é sem sentido de negócio (não há urgência em reabastecer o que não vende). Corrigido em `coberturaEmDias`: quando não há demanda, a cobertura é tratada como infinita (classifica como "não enviar"), não zero. Validado em produção: caiu de 49 falsos "críticos" para 2 reais + 2 "médio" coerentes.
+- **Planejador Inteligente de Envios**: nova seção no dashboard individual, tabela com Produto, Estoque Full, Média diária, Cobertura, Sugestão de envio, Projeção 30 dias, Prioridade — só mostra quem precisa de atenção real.
+
 ## Próxima fase (não iniciada)
-Fase 2 do roadmap do PRS: Motor Analítico (médias ponderadas, cobertura de estoque), Planejador Inteligente de Envios, Projeção de Vendas.
+Fase 3 do roadmap do PRS: Motor de Regras (políticas/alertas configuráveis) e camada de Inteligência Artificial (diagnósticos e recomendações em linguagem natural, consultando só o Banco Histórico + Motor Analítico + Motor de Regras — nunca a API do ML diretamente, seção 10.2 do PRS).

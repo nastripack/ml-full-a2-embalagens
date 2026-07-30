@@ -1,6 +1,6 @@
 # ML Full - A2 Embalagens
 
-Copiloto operacional para Mercado Livre Full. Sincroniza produtos, vendas, estoque e remessas (envios) do Full de uma ou mais contas (multi-tenant) para um banco histórico, e exibe um dashboard executivo — com visão individual por loja e uma visão comparativa entre lojas.
+Copiloto operacional para Mercado Livre Full. Sincroniza produtos, vendas, estoque, remessas (envios) e visitas do Full de uma ou mais contas (multi-tenant) para um banco histórico, calcula indicadores (Motor Analítico) e exibe um dashboard executivo com Planejador Inteligente de Envios — visão individual por loja e uma visão comparativa entre lojas.
 
 Baseado no PRS/SRS `PRS_SRS_Mercado_Livre_Full_v1.docx` (não incluído neste repositório).
 
@@ -17,13 +17,14 @@ Baseado no PRS/SRS `PRS_SRS_Mercado_Livre_Full_v1.docx` (não incluído neste re
 src/
   index.js             roteador principal + cron (scheduled)
   lib/
-    mercadolivre.js    cliente da API do Mercado Livre (OAuth, items, orders)
+    mercadolivre.js    cliente da API do Mercado Livre (OAuth, items, orders, estoque, remessas, visitas)
     db.js              helpers de leitura/escrita no D1
+    analytics.js       Motor Analitico: medias ponderadas, cobertura, prioridade, projecao (so le do D1)
     alertas.js          envio de e-mail via Resend em caso de falha
   routes/
     auth.js            /auth/login, /auth/callback
-    sync.js            /sync - orquestra a sincronizacao (produtos Full, vendas, estoque, remessas)
-    dashboard.js       /  - dashboard (visao geral e por loja)
+    sync.js            /sync - orquestra a sincronizacao (produtos Full, vendas, estoque, remessas, visitas)
+    dashboard.js       /  - dashboard (visao geral, por loja, e Planejador de Envios)
 migrations/            scripts de migracao ja aplicados em producao (nao reaplicar)
 schema.sql             schema completo, usado apenas em instalacoes novas (wrangler d1 execute)
 ```
@@ -72,13 +73,14 @@ e autorizar com a própria conta. O sistema registra a loja automaticamente e re
 - **Basic Auth / proteção de acesso ao dashboard**: decidido por enquanto **não implementar** (feito para ficar simples). Como o dashboard já mostra dados reais de vendas de múltiplas empresas, isso deve ser revisitado antes de expor o link amplamente.
 - **Estoque**: `GET /inventories/{inventory_id}/stock/fulfillment` (o `inventory_id` vem no payload do item, campo `item.inventory_id`) retorna `total`, `available_quantity` e `not_available_quantity`. Sem chamada extra por multiget — é uma chamada por produto.
 - **Remessas ao Full**: `GET /stock/fulfillment/operations/search` com `type=INBOUND_RECEPTION`, `seller_id`, `inventory_id`, `date_from`/`date_to` (obrigatórios, formato ISO com `Z`, intervalo máximo de 60 dias). Esse endpoint tem uma **quota própria e restrita** (erro `"over_quota"` mesmo com poucas chamadas em sequência) — por isso a sincronização processa no máximo 8 produtos por execução, com uma pausa de ~1,2s entre chamadas, revezando (round-robin) os produtos há mais tempo sem checar. Com o cron horário, todos os produtos acabam cobertos ao longo do dia.
-- **Custo de transporte das remessas (`valor_transporte`, `transportadora`)**: a API do Mercado Livre **não fornece** esse dado no endpoint de remessas — só quantidade e data. Fica como lacuna conhecida; precisará de entrada manual ou outra fonte quando a Fase 2/RF-016 (consolidação de custos de transporte) for implementada.
+- **Custo de transporte das remessas (`valor_transporte`, `transportadora`)**: a API do Mercado Livre **não fornece** esse dado no endpoint de remessas — só quantidade e data. Fica como lacuna conhecida; precisará de entrada manual ou outra fonte quando o RF-016 (consolidação de custos de transporte) for implementado.
+- **Visitas/performance**: `GET /items/visits?ids={um_item}&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD` — só aceita 1 item por chamada (nada de multiget aqui). Não existe impressões nem posição de busca via API pública; `conversao` não é gravada na sincronização — é calculada sob demanda pelo Motor Analítico (cruzando visitas com vendas do mesmo período), pra não ficar um número desatualizado guardado no banco.
+- **Cobertura de estoque quando não há vendas**: um SKU sem nenhuma venda no histórico tem "cobertura infinita" por definição (não faz sentido calcular ruptura pra algo que não vende) — isso o classifica automaticamente como "não enviar", nunca como crítico, mesmo com estoque zerado. Só entra como prioridade (crítico/alto/médio) quem tem histórico de vendas real e está com a cobertura ficando curta. Produtos sem histórico continuam sendo sincronizados normalmente a cada hora; assim que começarem a vender, entram no Planejador sozinhos, sem precisar mexer no código.
 
-## Status (Fase 1 completa)
+## Status (Fase 2 completa)
 
-- [x] OAuth, multi-tenant, dashboard (individual + comparativo)
-- [x] Sincronização automática (cron a cada 1 hora) com alerta por e-mail em falha
-- [x] Produtos, vendas, **estoque** e **remessas (envios) ao Full** sincronizados — Banco Histórico completo conforme seção 7.1 do PRS
+- [x] Fase 1: OAuth, multi-tenant, Banco Histórico completo (produtos, vendas, estoque, remessas), dashboard, cron + alerta por e-mail
+- [x] Fase 2: sincronização de visitas/performance, Motor Analítico (`lib/analytics.js`: médias ponderadas por janela, tendência, cobertura, risco, sugestão de envio, projeção de vendas), Planejador Inteligente de Envios no dashboard
 - [ ] Proteção de acesso ao dashboard (login/senha) — adiado de propósito
 - [ ] Custo de transporte por remessa — não disponível via API do Mercado Livre, precisa de outra fonte
-- [ ] Fase 2 do PRS: Motor Analítico, Planejador Inteligente de Envios, Projeção de Vendas
+- [ ] Fase 3 do PRS: Motor de Regras (alertas configuráveis) e camada de IA (diagnósticos e recomendações em linguagem natural)

@@ -1,3 +1,13 @@
+import { listarPlanejadorEnvios } from "../lib/analytics.js";
+
+const ROTULO_PRIORIDADE = {
+  critico: "Crítico",
+  alto: "Alto",
+  medio: "Médio",
+  sem_dados: "Sem dados",
+  nao_enviar: "Não enviar"
+};
+
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -25,6 +35,11 @@ function layout(titulo, corpo) {
   th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
   th { background: #fafafa; }
   .rank-1 { font-weight: 700; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+  .badge-critico { background: #fde2e1; color: #a31510; }
+  .badge-alto { background: #fef0c7; color: #92400e; }
+  .badge-medio { background: #e0edff; color: #1e40af; }
+  .badge-sem_dados { background: #eee; color: #666; }
 </style>
 </head>
 <body>
@@ -119,6 +134,10 @@ async function renderLoja(env, lojaId, recemConectado) {
     "SELECT data_hora FROM eventos WHERE loja_id = ? AND tipo = 'sincronizacao_concluida' ORDER BY data_hora DESC LIMIT 1"
   ).bind(lojaId).first();
 
+  const planejador = await listarPlanejadorEnvios(db, lojaId);
+  const itensAtencao = planejador.filter(p => p.prioridade !== "nao_enviar" && p.prioridade !== "sem_dados");
+  const itensCriticos = planejador.filter(p => p.prioridade === "critico" || p.prioridade === "alto").length;
+
   const linhasProdutos = (produtos.results || []).map(p => `
     <tr>
       <td>${escapeHtml(p.sku || "-")}</td>
@@ -150,7 +169,27 @@ async function renderLoja(env, lojaId, recemConectado) {
       <div class="label">Ultima sincronizacao</div>
       <div class="value" style="font-size:1rem">${ultimaSync ? escapeHtml(ultimaSync.data_hora) : "nunca"}</div>
     </div>
+    <div class="card">
+      <div class="label">Itens em risco de ruptura</div>
+      <div class="value">${itensCriticos}</div>
+    </div>
   </div>
+
+  <h2>Planejador Inteligente de Envios</h2>
+  <table>
+    <thead><tr><th>Produto</th><th>Estoque Full</th><th>Média diária</th><th>Cobertura (dias)</th><th>Sugestão de envio</th><th>Projeção 30d</th><th>Prioridade</th></tr></thead>
+    <tbody>${itensAtencao.length ? itensAtencao.slice(0, 20).map(p => `
+      <tr>
+        <td>${escapeHtml(p.nome)}</td>
+        <td>${p.estoqueAtual}</td>
+        <td>${p.mediaDiaria.toFixed(2)}</td>
+        <td>${p.cobertura === Infinity ? "-" : Math.round(p.cobertura)}</td>
+        <td>${p.sugestaoEnvio}</td>
+        <td>${p.projecao30Dias}</td>
+        <td><span class="badge badge-${p.prioridade}">${ROTULO_PRIORIDADE[p.prioridade]}</span></td>
+      </tr>`).join("") : '<tr><td colspan="7">Nenhum item precisando de atenção no momento.</td></tr>'}</tbody>
+  </table>
+
   <h2>Produtos sincronizados</h2>
   <table>
     <thead><tr><th>SKU</th><th>MLB</th><th>Nome</th><th>Status</th></tr></thead>

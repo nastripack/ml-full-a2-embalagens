@@ -110,6 +110,15 @@ export async function inserirEnvio(db, lojaId, produtoId, operacao) {
   ).run();
 }
 
+// impressoes e posicao nao sao expostas pela API publica do Mercado Livre; conversao e calculada
+// depois pelo Motor Analitico (cruzando com vendas), nao gravada aqui para nao ficar desatualizada.
+export async function inserirPerformance(db, lojaId, produtoId, visits) {
+  await db.prepare(
+    `INSERT INTO performance_historico (loja_id, produto_id, data, visualizacoes)
+     VALUES (?, ?, date('now'), ?)`
+  ).bind(lojaId, produtoId, visits?.total_visits ?? null).run();
+}
+
 export async function registrarEvento(db, lojaId, tipo, produtoId, payload, origem) {
   await db.prepare(
     "INSERT INTO eventos (loja_id, tipo, produto_id, payload_json, origem) VALUES (?, ?, ?, ?, ?)"

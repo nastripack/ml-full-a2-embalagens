@@ -1,13 +1,14 @@
 import {
   getValidAccessToken, getItemsMultiget, searchUserItems, getOrdersSearch,
-  getStockFulfillment, getInboundReceptions
+  getStockFulfillment, getInboundReceptions, getItemVisits
 } from "../lib/mercadolivre.js";
-import { upsertProduto, inserirVenda, inserirEstoque, inserirEnvio, registrarEvento } from "../lib/db.js";
+import { upsertProduto, inserirVenda, inserirEstoque, inserirEnvio, inserirPerformance, registrarEvento } from "../lib/db.js";
 
 const JANELA_VENDAS_DIAS = 60;
 const MAX_PAGINAS_POR_EXECUCAO = 5; // 5 paginas x (1 search + 3 multiget) = ~20 subrequests, com folga do limite do Worker
 const MAX_ITENS_ESTOQUE_POR_EXECUCAO = 8; // limitado pelo quota proprio e mais restrito do endpoint de remessas
 const PAUSA_ENTRE_REMESSAS_MS = 1200;
+const MAX_ITENS_PERFORMANCE_POR_EXECUCAO = 15; // /items/visits so aceita 1 item por chamada
 
 function esperar(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -17,7 +18,7 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   const db = env.DB;
   const accessToken = await getValidAccessToken(db, env, lojaId);
 
-  const resumo = { skus_atualizados: 0, vendas_analisadas: 0, estoque_atualizado: 0, remessas_encontradas: 0, erros: [] };
+  const resumo = { skus_atualizados: 0, vendas_analisadas: 0, estoque_atualizado: 0, remessas_encontradas: 0, performance_atualizada: 0, erros: [] };
 
   // 1. Sincroniza produtos do Full - em lotes, com multiget, respeitando o limite de subrequests do Worker
   let offset = offsetInicial;
@@ -98,6 +99,28 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
       }
     } catch (err) {
       resumo.erros.push(`estoque/remessas ${produto.mlb}: ${err.message}`);
+    }
+  }
+
+  // 4. Performance (visitas) - so os produtos ha mais tempo sem checar (round-robin entre execucoes)
+  const desdeData = desde.slice(0, 10);
+  const ateData = ate.slice(0, 10);
+  const produtosParaVisitas = await db.prepare(
+    `SELECT p.id, p.mlb
+     FROM produtos p
+     LEFT JOIN (SELECT produto_id, MAX(data) as ultima FROM performance_historico GROUP BY produto_id) perf ON perf.produto_id = p.id
+     WHERE p.loja_id = ?
+     ORDER BY perf.ultima ASC
+     LIMIT ?`
+  ).bind(lojaId, MAX_ITENS_PERFORMANCE_POR_EXECUCAO).all();
+
+  for (const produto of produtosParaVisitas.results || []) {
+    try {
+      const visits = await getItemVisits(accessToken, produto.mlb, desdeData, ateData);
+      await inserirPerformance(db, lojaId, produto.id, visits);
+      resumo.performance_atualizada++;
+    } catch (err) {
+      resumo.erros.push(`performance ${produto.mlb}: ${err.message}`);
     }
   }
 
