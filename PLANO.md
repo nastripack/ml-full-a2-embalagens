@@ -151,5 +151,14 @@ Pedido do usuário: proteger o acesso com uma "contracapa" em subdomínio separa
 
 **Simplificado de propósito**: senha em texto simples num secret do Worker (sem hash) — aceitável para credencial única de admin, não escalaria para multiusuário real.
 
+## Investigação: custo de transporte por remessa (RF-016) — achados antes da Fase 3
+
+A A2 Embalagens **não usa transportadora própria** para reposição de estoque no Full — usa sempre a **Coleta Full** (serviço do próprio Mercado Livre), que sempre tem custo. Isso simplifica o problema do RF-016, mas o caminho não é a API:
+
+- **API pública de Faturamento** (`/billing/integration/monthly/periods` → `/documents` → `/summary/details`) só retorna **totais agregados por tipo de cobrança no mês** (ex.: "Cargo por Mercado Envios"), sem granularidade por coleta individual (data/valor por remessa) — confirmado via documentação oficial. Não é utilizável para o que precisamos.
+- O usuário encontrou manualmente no painel: `myaccount.mercadolivre.com.br/billing/cnc/charges-summary?searchTypes=CFCBE` → "Faturamento → Tarifas e cancelamentos", filtro "Custo do serviço de coleta Full" — mostra **cada coleta individualmente**, com data e valor (ex.: R$7,52, R$7,75, R$5,49...). Essa granularidade só existe nessa tela do painel interno, sem endpoint público equivalente.
+- **Plano para a Fase 3**: se essa tela tiver exportação (CSV/Excel), a via de dados passa a ser **upload desse export**, casado por data com as remessas já sincronizadas em `envios` — muito mais simples de processar que PDF de DANFE (dado tabular estruturado). O upload de DANFE deixa de ser prioritário para custo (já que não há transportadora própria), mas continua útil como forma alternativa de conferência de produtos/quantidades por remessa, se algum dia precisar.
+- **Pendente de confirmar**: se a tela de "Tarifas e cancelamentos" tem botão de exportar e qual o formato do arquivo — a confirmar quando entrarmos na Fase 3.
+
 ## Próxima fase (não iniciada)
-Fase 3 do roadmap do PRS: Motor de Regras (políticas/alertas configuráveis) e camada de Inteligência Artificial (diagnósticos e recomendações em linguagem natural, consultando só o Banco Histórico + Motor Analítico + Motor de Regras — nunca a API do ML diretamente, seção 10.2 do PRS). Ao entrar nela, revisitar também: custo de transporte por remessa (RF-016).
+Fase 3 do roadmap do PRS: Motor de Regras (políticas/alertas configuráveis) e camada de Inteligência Artificial (diagnósticos e recomendações em linguagem natural, consultando só o Banco Histórico + Motor Analítico + Motor de Regras — nunca a API do ML diretamente, seção 10.2 do PRS). Ao entrar nela, implementar também o upload do export de "Tarifas e cancelamentos" (custo de transporte por remessa, RF-016) conforme achados acima.
