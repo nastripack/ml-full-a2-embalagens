@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS envios (
   FOREIGN KEY (produto_id) REFERENCES produtos(id)
 );
 CREATE INDEX IF NOT EXISTS idx_envios_loja ON envios(loja_id);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_envios_loja_remessa ON envios(loja_id, remessa);
+-- Uma remessa pode conter varios produtos diferentes - a unicidade precisa incluir produto_id.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_envios_loja_produto_remessa ON envios(loja_id, produto_id, remessa);
 
 -- Historico de performance do anuncio: insert-only
 CREATE TABLE IF NOT EXISTS performance_historico (

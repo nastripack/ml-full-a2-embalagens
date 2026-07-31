@@ -109,5 +109,22 @@ Mesmo padrão da Fase 1: revisão própria encontrou que `performance_historico`
 - **Bug real encontrado e corrigido antes de fechar a fase**: produtos sem nenhuma venda no histórico (média diária = 0) estavam sendo classificados como "Crítico" só por terem estoque zerado — o que é sem sentido de negócio (não há urgência em reabastecer o que não vende). Corrigido em `coberturaEmDias`: quando não há demanda, a cobertura é tratada como infinita (classifica como "não enviar"), não zero. Validado em produção: caiu de 49 falsos "críticos" para 2 reais + 2 "médio" coerentes.
 - **Planejador Inteligente de Envios**: nova seção no dashboard individual, tabela com Produto, Estoque Full, Média diária, Cobertura, Sugestão de envio, Projeção 30 dias, Prioridade — só mostra quem precisa de atenção real.
 
+## Fechamento de pontas soltas da Fase 2 + janela histórica de 12 meses (concluído)
+
+Pedido do usuário: máximo de histórico possível (idealmente 12 meses), e fechar 3 pontas soltas identificadas na revisão (tendência/confiança calculadas mas não exibidas; projeção só de 30 dias; faltava o estado "volátil" na tendência). Todos os 3 pontos implementados em `src/lib/analytics.js` e `src/routes/dashboard.js`.
+
+**Descoberta importante sobre limites de cada fonte:**
+- Vendas (`/orders/search`): sem limite de 60 dias — mas **não tem filtro de Full** (`logistic_type`/`tags=fulfillment` testados, nenhum funciona), então busca todos os pedidos da loja (~4.781 em 12 meses pra essa conta) e filtra depois no código (por MLB já cadastrado como Full).
+- Remessas (`/stock/fulfillment/operations/search`): confirmado limite rígido de 60 dias por chamada + quota própria restrita.
+- Visitas (`/items/visits`): testado com 365 dias, funciona sem erro.
+
+**Bug real causado por mim mesmo e corrigido**: ao estender ingenuamente a janela de vendas do sync de rotina para 365 dias, o tempo de execução do Worker passou de ~90s para ~184s e passou a bater num teto de duração da Cloudflare (`error code: 1101`, observado empiricamente por volta de 180s). Diagnosticado instrumentando `sync.js` com timers por fase e checkpoints gravados no D1 a cada item processado (permite ver o progresso mesmo se a execução morrer no meio, já que o resultado só é serializado no fim). Também achei e removi uma escrita de evento por produto individual (95 escritas extras no D1 por sincronização) que não agregava valor real.
+
+**Correção arquitetural**: sync de rotina (`/sync`, cron horário) voltou a usar janela curta (vendas: 7 dias) — rápido, nunca chega perto do limite. Histórico profundo (12 meses) passou a ser responsabilidade de duas rotinas novas e separadas, **resumíveis e manuais**, seguindo o mesmo padrão já usado para o backfill de remessas: `src/routes/backfill.js` agora tem `handleBackfillVendas` (paginado via `?offset=`) e `handleBackfillRemessas` (via `?indice=`, em blocos de 60 dias). Rodadas via loop de shell até `concluido: true`.
+
+**Segundo bug encontrado durante o backfill de remessas**: o índice único de `envios` era `UNIQUE(loja_id, remessa)`, mas uma remessa física pode conter vários produtos diferentes — o segundo produto de uma mesma remessa era descartado silenciosamente pelo `INSERT OR IGNORE`. Corrigido para `UNIQUE(loja_id, produto_id, remessa)` via `migrations/0004_fix_envios_unique.sql`. O backfill de remessas foi refeito do zero após a correção.
+
+**Resultado final do backfill**: 997 vendas cobrindo exatamente os últimos 12 meses (31/07/2025 a 30/07/2026), sem erros. Remessas: 17 registros salvos (11 produtos distintos) — cobertura parcial porque a segunda rodada do backfill (após corrigir o índice) foi rodada logo em seguida da primeira, sem tempo pra quota do endpoint se recuperar, gerando bastante erro `over_quota`. Pode ser refeito mais tarde (`/backfill-remessas?loja=1055727709&indice=0`) pra capturar o que ficou de fora — não é urgente, o cron de rotina já mantém os últimos 60 dias sempre atualizados.
+
 ## Próxima fase (não iniciada)
 Fase 3 do roadmap do PRS: Motor de Regras (políticas/alertas configuráveis) e camada de Inteligência Artificial (diagnósticos e recomendações em linguagem natural, consultando só o Banco Histórico + Motor Analítico + Motor de Regras — nunca a API do ML diretamente, seção 10.2 do PRS).

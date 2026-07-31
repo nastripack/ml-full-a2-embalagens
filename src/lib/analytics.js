@@ -18,10 +18,35 @@ export function mediaDiariaPonderada(linhasDiaAtras) {
   return 0.4 * media7 + 0.3 * media15 + 0.2 * media30 + 0.1 * media31a60;
 }
 
+// Agrupa em semanas (0-6, 7-13, ..., 49-55 dias atras) para suavizar o "zero-inflation"
+// diario tipico de baixo volume, antes de medir volatilidade.
+function totaisSemanais(linhasDiaAtras, numSemanas = 8) {
+  const semanas = new Array(numSemanas).fill(0);
+  for (const l of linhasDiaAtras) {
+    const idx = Math.floor(l.dias_atras / 7);
+    if (idx >= 0 && idx < numSemanas) semanas[idx] += l.qtd;
+  }
+  return semanas;
+}
+
+function coeficienteVariacao(valores) {
+  const media = valores.reduce((a, b) => a + b, 0) / valores.length;
+  if (media === 0) return 0;
+  const variancia = valores.reduce((s, v) => s + (v - media) ** 2, 0) / valores.length;
+  return Math.sqrt(variancia) / media;
+}
+
+// 4 estados da secao 8.1 do PRS: crescimento / estavel / desaceleracao / volatil.
 export function classificarTendencia(linhasDiaAtras) {
   const media7 = somaJanela(linhasDiaAtras, 0, 7) / 7;
   const media30 = somaJanela(linhasDiaAtras, 0, 30) / 30;
   if (media7 === 0 && media30 === 0) return "sem_dados";
+
+  // Variabilidade semana a semana (56 dias) tem prioridade sobre a direcao da tendencia:
+  // um produto com vendas oscilando muito nao esta "estavel" mesmo que a media geral nao mude.
+  const cv = coeficienteVariacao(totaisSemanais(linhasDiaAtras));
+  if (cv > 1) return "volatil";
+
   if (media30 === 0) return "crescimento";
   const variacao = (media7 - media30) / media30;
   if (variacao > 0.2) return "crescimento";
@@ -120,7 +145,12 @@ export async function listarPlanejadorEnvios(db, lojaId) {
       tendencia: classificarTendencia(linhas),
       prioridade,
       sugestaoEnvio: sugerirQuantidadeEnvio(estoqueAtual, mediaDiaria),
-      projecao30Dias: projetarVendas(mediaDiaria, 30),
+      projecoes: {
+        d7: projetarVendas(mediaDiaria, 7),
+        d15: projetarVendas(mediaDiaria, 15),
+        d30: projetarVendas(mediaDiaria, 30),
+        d60: projetarVendas(mediaDiaria, 60)
+      },
       confianca: calcularNivelConfianca(linhas)
     });
   }

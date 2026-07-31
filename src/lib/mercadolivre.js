@@ -95,7 +95,7 @@ export async function searchUserItems(accessToken, userId, offset = 0) {
   return apiGet(accessToken, `/users/${userId}/items/search?limit=50&offset=${offset}&logistic_type=fulfillment`);
 }
 
-const MAX_PAGINAS_PEDIDOS = 10; // 10 x limit 50 = ate 500 pedidos por execucao, com folga do limite de subrequests
+const MAX_PAGINAS_PEDIDOS = 10; // 10 x limit 50 = ate 500 pedidos - o sync de rotina usa janela curta (7 dias), sem risco de estourar o tempo de execucao
 
 export async function getOrdersSearch(accessToken, sellerId, fromDate) {
   const limit = 50;
@@ -116,6 +116,20 @@ export async function getOrdersSearch(accessToken, sellerId, fromDate) {
     if ((data.results || []).length === 0 || offset >= total) break;
   }
   return { results: todos };
+}
+
+// Uma pagina por chamada, com offset explicito - usado pelo backfill historico resumivel,
+// que precisa controlar quantas paginas processa por invocacao (nao pode rodar tudo de uma vez
+// sem estourar o tempo de execucao do Worker).
+export async function getOrdersSearchPage(accessToken, sellerId, fromDate, offset, limit = 50) {
+  const params = new URLSearchParams({
+    seller: sellerId,
+    "order.date_created.from": fromDate,
+    sort: "date_desc",
+    limit: String(limit),
+    offset: String(offset)
+  });
+  return apiGet(accessToken, `/orders/search?${params.toString()}`);
 }
 
 export async function getShipment(accessToken, shipmentId) {

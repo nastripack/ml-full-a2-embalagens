@@ -8,6 +8,16 @@ const ROTULO_PRIORIDADE = {
   nao_enviar: "Não enviar"
 };
 
+const ROTULO_TENDENCIA = {
+  crescimento: "Crescimento",
+  estavel: "Estável",
+  desaceleracao: "Desaceleração",
+  volatil: "Volátil",
+  sem_dados: "Sem dados"
+};
+
+const ROTULO_CONFIANCA = { alta: "Alta", media: "Média", baixa: "Baixa" };
+
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -31,7 +41,8 @@ function layout(titulo, corpo) {
   .card { background: white; border-radius: 8px; padding: 1rem 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .card .label { font-size: 0.8rem; color: #666; }
   .card .value { font-size: 1.6rem; font-weight: 600; }
-  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; margin-bottom: 2rem; }
+  .table-wrap { overflow-x: auto; margin-bottom: 2rem; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
   th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
   th { background: #fafafa; }
   .rank-1 { font-weight: 700; }
@@ -98,22 +109,22 @@ async function renderOverview(env) {
   <h1>Visao Geral - Mercado Livre Full</h1>
 
   <h2>Lojas conectadas</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Loja</th></tr></thead>
     <tbody>${linhasLojas || '<tr><td>Nenhuma loja conectada ainda. Acesse /auth/login para conectar a primeira.</td></tr>'}</tbody>
-  </table>
+  </table></div>
 
   <h2>Ranking de vendas (30 dias)</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>#</th><th>Loja</th><th>Valor liquido</th><th>Pedidos</th></tr></thead>
     <tbody>${linhasRanking || '<tr><td colspan="4">Sem vendas no periodo.</td></tr>'}</tbody>
-  </table>
+  </table></div>
 
   <h2>Top produtos entre todas as lojas (30 dias)</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Produto</th><th>Loja</th><th>Qtd vendida</th><th>Receita liquida</th></tr></thead>
     <tbody>${linhasTop || '<tr><td colspan="4">Sem vendas no periodo.</td></tr>'}</tbody>
-  </table>
+  </table></div>
   `);
 }
 
@@ -176,25 +187,35 @@ async function renderLoja(env, lojaId, recemConectado) {
   </div>
 
   <h2>Planejador Inteligente de Envios</h2>
-  <table>
-    <thead><tr><th>Produto</th><th>Estoque Full</th><th>Média diária</th><th>Cobertura (dias)</th><th>Sugestão de envio</th><th>Projeção 30d</th><th>Prioridade</th></tr></thead>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>Produto</th><th>Estoque Full</th><th>Média diária</th><th>Cobertura (dias)</th>
+      <th>Tendência</th><th>Confiança</th><th>Sugestão de envio</th>
+      <th>Projeção 7d</th><th>Projeção 15d</th><th>Projeção 30d</th><th>Projeção 60d</th>
+      <th>Prioridade</th>
+    </tr></thead>
     <tbody>${itensAtencao.length ? itensAtencao.slice(0, 20).map(p => `
       <tr>
         <td>${escapeHtml(p.nome)}</td>
         <td>${p.estoqueAtual}</td>
         <td>${p.mediaDiaria.toFixed(2)}</td>
         <td>${p.cobertura === Infinity ? "-" : Math.round(p.cobertura)}</td>
+        <td>${ROTULO_TENDENCIA[p.tendencia]}</td>
+        <td>${ROTULO_CONFIANCA[p.confianca]}</td>
         <td>${p.sugestaoEnvio}</td>
-        <td>${p.projecao30Dias}</td>
+        <td>${p.projecoes.d7}</td>
+        <td>${p.projecoes.d15}</td>
+        <td>${p.projecoes.d30}</td>
+        <td>${p.projecoes.d60}</td>
         <td><span class="badge badge-${p.prioridade}">${ROTULO_PRIORIDADE[p.prioridade]}</span></td>
-      </tr>`).join("") : '<tr><td colspan="7">Nenhum item precisando de atenção no momento.</td></tr>'}</tbody>
-  </table>
+      </tr>`).join("") : '<tr><td colspan="12">Nenhum item precisando de atenção no momento.</td></tr>'}</tbody>
+  </table></div>
 
   <h2>Produtos sincronizados</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>SKU</th><th>MLB</th><th>Nome</th><th>Status</th></tr></thead>
     <tbody>${linhasProdutos || `<tr><td colspan="4">Nenhum produto sincronizado ainda. Acesse /sync?loja=${escapeHtml(lojaId)}.</td></tr>`}</tbody>
-  </table>
+  </table></div>
   `);
 }
 

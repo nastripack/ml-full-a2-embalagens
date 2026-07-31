@@ -4,7 +4,12 @@ import {
 } from "../lib/mercadolivre.js";
 import { upsertProduto, inserirVenda, inserirEstoque, inserirEnvio, inserirPerformance, registrarEvento } from "../lib/db.js";
 
-const JANELA_VENDAS_DIAS = 60;
+// Janela curta e rapida para o sync de rotina (cron horario) - so precisa pegar o que e novo desde a
+// ultima execucao. O historico profundo (ate 12 meses) e responsabilidade do backfill separado
+// (/backfill-vendas), que roda uma unica vez sem competir com o tempo de execucao do cron.
+const JANELA_VENDAS_DIAS = 7;
+const JANELA_REMESSAS_DIAS = 60; // limite rigido do endpoint stock/fulfillment/operations/search (confirmado via erro real da API)
+const JANELA_VISITAS_DIAS = 365; // sem limite de 60 dias neste endpoint (testado e confirmado)
 const MAX_PAGINAS_POR_EXECUCAO = 5; // 5 paginas x (1 search + 3 multiget) = ~20 subrequests, com folga do limite do Worker
 const MAX_ITENS_ESTOQUE_POR_EXECUCAO = 8; // limitado pelo quota proprio e mais restrito do endpoint de remessas
 const PAUSA_ENTRE_REMESSAS_MS = 1200;
@@ -18,7 +23,8 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   const db = env.DB;
   const accessToken = await getValidAccessToken(db, env, lojaId);
 
-  const resumo = { skus_atualizados: 0, vendas_analisadas: 0, estoque_atualizado: 0, remessas_encontradas: 0, performance_atualizada: 0, erros: [] };
+  const resumo = { skus_atualizados: 0, vendas_analisadas: 0, estoque_atualizado: 0, remessas_encontradas: 0, performance_atualizada: 0, erros: [], tempos_ms: {} };
+  const inicio = Date.now();
 
   // 1. Sincroniza produtos do Full - em lotes, com multiget, respeitando o limite de subrequests do Worker
   let offset = offsetInicial;
@@ -35,7 +41,6 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
       for (const item of itens) {
         const produtoId = await upsertProduto(db, lojaId, item);
         produtoIdPorMlb[item.id] = produtoId;
-        await registrarEvento(db, lojaId, "produto_sincronizado", produtoId, { mlb: item.id }, "mercadolivre_api");
         resumo.skus_atualizados++;
       }
     } catch (err) {
@@ -49,13 +54,16 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   if (offset < totalDisponivel) {
     resumo.aviso = `Sincronizados ate offset ${offset} de ${totalDisponivel} produtos. Chame de novo com offset=${offset} para continuar.`;
   }
+  resumo.tempos_ms.produtos = Date.now() - inicio;
+  await registrarEvento(db, lojaId, "sync_checkpoint_produtos", null, { ms: resumo.tempos_ms.produtos }, "worker_sync");
 
-  const desde = new Date(Date.now() - JANELA_VENDAS_DIAS * 24 * 60 * 60 * 1000).toISOString();
   const ate = new Date().toISOString();
+  const desdeVendas = new Date(Date.now() - JANELA_VENDAS_DIAS * 24 * 60 * 60 * 1000).toISOString();
+  const desdeRemessas = new Date(Date.now() - JANELA_REMESSAS_DIAS * 24 * 60 * 60 * 1000).toISOString();
 
-  // 2. Sincroniza vendas dos ultimos 60 dias (paginado)
+  // 2. Sincroniza vendas do ultimo ano (paginado)
   try {
-    const pedidos = await getOrdersSearch(accessToken, lojaId, desde);
+    const pedidos = await getOrdersSearch(accessToken, lojaId, desdeVendas);
     for (const pedido of pedidos.results || []) {
       for (const item of pedido.order_items || []) {
         const mlb = item.item.id;
@@ -72,6 +80,8 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   } catch (err) {
     resumo.erros.push(`pedidos: ${err.message}`);
   }
+  resumo.tempos_ms.vendas = Date.now() - inicio;
+  await registrarEvento(db, lojaId, "sync_checkpoint_vendas", null, { ms: resumo.tempos_ms.vendas }, "worker_sync");
 
   // 3. Estoque e remessas ao Full - so os produtos ha mais tempo sem checar (round-robin entre execucoes)
   const produtosParaChecar = await db.prepare(
@@ -92,7 +102,7 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
 
       if (!primeiro) await esperar(PAUSA_ENTRE_REMESSAS_MS);
       primeiro = false;
-      const remessas = await getInboundReceptions(accessToken, lojaId, produto.inventory_id, desde, ate);
+      const remessas = await getInboundReceptions(accessToken, lojaId, produto.inventory_id, desdeRemessas, ate);
       for (const remessa of remessas) {
         await inserirEnvio(db, lojaId, produto.id, remessa);
         resumo.remessas_encontradas++;
@@ -101,9 +111,11 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
       resumo.erros.push(`estoque/remessas ${produto.mlb}: ${err.message}`);
     }
   }
+  resumo.tempos_ms.estoque_remessas = Date.now() - inicio;
 
   // 4. Performance (visitas) - so os produtos ha mais tempo sem checar (round-robin entre execucoes)
-  const desdeData = desde.slice(0, 10);
+  const desdeVisitas = new Date(Date.now() - JANELA_VISITAS_DIAS * 24 * 60 * 60 * 1000).toISOString();
+  const desdeData = desdeVisitas.slice(0, 10);
   const ateData = ate.slice(0, 10);
   const produtosParaVisitas = await db.prepare(
     `SELECT p.id, p.mlb
@@ -123,6 +135,8 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
       resumo.erros.push(`performance ${produto.mlb}: ${err.message}`);
     }
   }
+
+  resumo.tempos_ms.performance = Date.now() - inicio;
 
   await registrarEvento(db, lojaId, "sincronizacao_concluida", null, resumo, "worker_sync");
 
