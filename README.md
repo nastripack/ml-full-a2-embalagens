@@ -107,6 +107,8 @@ O dashboard (`full.nastripack.com.br`) fica atrás de uma "contracapa" em um sub
 
 ## Decisões e lições aprendidas (vale ler antes de mexer)
 
+- **`sale_fee` (comissão) fica dentro de `order_items[]`, não no pedido**: `inserirVenda` lia `pedido.sale_fee` (campo que não existe nesse nível), então `comissao` era sempre 0 e `valor_liquido` guardado era, na prática, igual a `valor_bruto` — em todas as 1.002 vendas sincronizadas até 31/07/2026. Corrigido para `item.sale_fee` (dentro de cada `order_item`). Por decisão do usuário, a correção vale **só a partir de agosto/2026** — os registros anteriores a essa data continuam com comissão zerada, sem backfill retroativo.
+- **`/orders/search` não filtra por status do pedido**: a sincronização de vendas conta qualquer pedido retornado no período, sem checar se foi cancelado ou nunca pago. Pode estar inflando receita e a média diária do Planejador. Identificado na auditoria da Fase 2 (ver `PLANO.md`), ainda não corrigido.
 - **`logistic_type=fulfillment` é obrigatório** na busca de itens (`/users/{id}/items/search`). Sem esse parâmetro, a API retorna o catálogo inteiro do vendedor (chegamos a ver ~2,4 milhões de resultados para uma conta com só 95 produtos no Full).
 - **Limite de subrequests do Worker**: a sincronização usa o endpoint multiget (`/items?ids=...`, até 20 por chamada) em vez de buscar item por item, e processa no máximo 5 páginas por execução (resumível via `?offset=`), para não estourar o limite de subrequests por invocação.
 - **Segredos colados no terminal**: no `cmd.exe` do Windows, `Ctrl+V` no prompt do `wrangler secret put` pode falhar silenciosamente (insere um caractere de controle em vez do texto). Sempre usar clique com o botão direito para colar, e nunca digitar o valor manualmente.

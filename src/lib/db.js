@@ -69,7 +69,9 @@ function parseDimensions(dimensions) {
 
 export async function inserirVenda(db, lojaId, produtoId, pedido, item) {
   const valorBruto = item.unit_price * item.quantity;
-  const comissao = pedido.sale_fee || 0;
+  // sale_fee vem dentro de cada order_item, nao no nivel do pedido (bug anterior lia pedido.sale_fee,
+  // que nao existe, e sempre resultava em comissao 0 - corrigido a partir de agosto/2026).
+  const comissao = item.sale_fee || 0;
   const valorLiquido = valorBruto - comissao;
 
   await db.prepare(
