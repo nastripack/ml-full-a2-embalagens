@@ -106,6 +106,7 @@ async function renderOverview(env) {
     </tr>`).join("");
 
   return layout("Visao Geral - ML Full", `
+  <a class="voltar" href="/saude">Saude do sistema &rarr;</a>
   <h1>Visao Geral - Mercado Livre Full</h1>
 
   <h2>Lojas conectadas</h2>

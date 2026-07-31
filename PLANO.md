@@ -126,5 +126,14 @@ Pedido do usuário: máximo de histórico possível (idealmente 12 meses), e fec
 
 **Resultado final do backfill**: 997 vendas cobrindo exatamente os últimos 12 meses (31/07/2025 a 30/07/2026), sem erros. Remessas: 17 registros salvos (11 produtos distintos) — cobertura parcial porque a segunda rodada do backfill (após corrigir o índice) foi rodada logo em seguida da primeira, sem tempo pra quota do endpoint se recuperar, gerando bastante erro `over_quota`. Pode ser refeito mais tarde (`/backfill-remessas?loja=1055727709&indice=0`) pra capturar o que ficou de fora — não é urgente, o cron de rotina já mantém os últimos 60 dias sempre atualizados.
 
+## Auditoria de riscos + endurecimento operacional (concluído)
+
+Usuário pediu uma revisão dos riscos/pontas soltas do projeto e sugestões fora do escopo original. Levantados: falta de proteção de acesso (adiada, ver seção Fase 1), custo de transporte não disponível via API (fica pra quando a Inteligência de Precificação da Fase 3 entrar), teto de duração do Worker (já documentado), falta de backup e de visibilidade operacional. Os dois últimos foram resolvidos agora:
+
+- **Backup semanal do D1**: primeira tentativa foi um Agendador de Tarefas do Windows local nesta máquina — usuário corrigiu que essa não é a máquina que quem cuida da operação vai manter ligada. Trocado por **GitHub Actions** (`.github/workflows/backup-semanal.yml`), que roda na infraestrutura do GitHub independente de qualquer computador. Precisa dos secrets `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`.
+  - **Mesmo bug de sempre, em lugar novo**: o token colado no secret do GitHub veio com espaço/quebra de linha extra (mesma causa raiz dos problemas com `wrangler secret put` na Fase 1), causando erro `Headers.set: invalid header value`. Resolvido gerando um token novo e copiando com o botão de copiar da página do Cloudflare em vez de selecionar manualmente.
+  - Testado via `workflow_dispatch` (disparo manual): sucesso, commit `65f71be` feito por `github-actions[bot]`.
+- **Página `/saude`**: visão operacional simples (não é o dashboard de negócio) lendo a tabela `eventos` — mostra card verde/vermelho por loja (sincronizou nas últimas 2h ou não) e tabela com as últimas 30 sincronizações, duração e erros. Já existiam todos os dados, só faltava expor.
+
 ## Próxima fase (não iniciada)
-Fase 3 do roadmap do PRS: Motor de Regras (políticas/alertas configuráveis) e camada de Inteligência Artificial (diagnósticos e recomendações em linguagem natural, consultando só o Banco Histórico + Motor Analítico + Motor de Regras — nunca a API do ML diretamente, seção 10.2 do PRS).
+Fase 3 do roadmap do PRS: Motor de Regras (políticas/alertas configuráveis) e camada de Inteligência Artificial (diagnósticos e recomendações em linguagem natural, consultando só o Banco Histórico + Motor Analítico + Motor de Regras — nunca a API do ML diretamente, seção 10.2 do PRS). Ao entrar nela, revisitar tambem: custo de transporte por remessa (RF-016), e proteção de acesso ao dashboard antes de conectar mais lojas reais.

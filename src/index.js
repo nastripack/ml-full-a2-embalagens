@@ -2,6 +2,7 @@ import { handleLogin, handleCallback } from "./routes/auth.js";
 import { handleSync, runSyncForLoja } from "./routes/sync.js";
 import { handleDashboard } from "./routes/dashboard.js";
 import { handleBackfillRemessas, handleBackfillVendas } from "./routes/backfill.js";
+import { handleSaude } from "./routes/saude.js";
 import { enviarAlertaFalha } from "./lib/alertas.js";
 
 export default {
@@ -14,6 +15,7 @@ export default {
       if (url.pathname === "/sync") return handleSync(request, env);
       if (url.pathname === "/backfill-remessas") return handleBackfillRemessas(request, env);
       if (url.pathname === "/backfill-vendas") return handleBackfillVendas(request, env);
+      if (url.pathname === "/saude") return handleSaude(request, env);
       if (url.pathname === "/") return handleDashboard(request, env);
 
       return new Response("Nao encontrado", { status: 404 });
