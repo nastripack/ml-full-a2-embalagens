@@ -19,3 +19,7 @@ database_id = "9a3b708a-1f7f-459a-970e-c59734240f2b"
 [[routes]]
 pattern = "full.nastripack.com.br"
 custom_domain = true
+
+[[routes]]
+pattern = "full2.nastripack.com.br"
+custom_domain = true

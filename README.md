@@ -21,8 +21,10 @@ src/
     db.js              helpers de leitura/escrita no D1
     analytics.js       Motor Analitico: medias ponderadas, cobertura, prioridade, projecao (so le do D1)
     alertas.js          envio de e-mail via Resend em caso de falha
+    sessao.js           token de sessao assinado (HMAC) + helpers de cookie, usado pela contracapa de login
   routes/
-    auth.js            /auth/login, /auth/callback
+    auth.js            /auth/login, /auth/callback (OAuth do Mercado Livre - vincular uma loja)
+    login.js           /login - contracapa de acesso ao site (e-mail+senha, separado do OAuth acima)
     sync.js            /sync - sincronizacao de rotina (rapida, janela curta, chamada pelo cron)
     backfill.js         /backfill-vendas, /backfill-remessas - historico profundo, manual, resumivel
     dashboard.js       /  - dashboard (visao geral, por loja, e Planejador de Envios)
@@ -82,6 +84,21 @@ Cada chamada processa um lote pequeno e devolve `proximo_offset`/`proximo_indice
 
 **Resultado no ambiente de produção (A2 Plásticos, loja `1055727709`)**: `/backfill-vendas` completou 100% (4.781 pedidos verificados, 997 vendas Full inseridas, cobrindo os últimos 12 meses exatos, zero erros). `/backfill-remessas` completou mas com cobertura parcial (17 remessas em 11 produtos) — a quota do endpoint de remessas não se recupera rápido o suficiente pra rodar o backfill inteiro duas vezes seguidas sem gerar bastante `over_quota`. Pode rodar de novo mais tarde (`?indice=0`) pra capturar mais; o `INSERT OR IGNORE` garante que não duplica o que já foi salvo.
 
+## Login e proteção de acesso (contracapa)
+
+O dashboard (`full.nastripack.com.br`) fica atrás de uma "contracapa" em um subdomínio separado, `full2.nastripack.com.br`, com uma caixa central de e-mail + senha. É uma credencial única compartilhada (não multiusuário) — pensada para um micro-SaaS interno, sempre acessado do computador da empresa.
+
+- **Como funciona**: `full2.nastripack.com.br` só serve a tela de login (`GET`/`POST /login`). Ao acertar e-mail/senha (comparados com os secrets `LOGIN_EMAIL`/`LOGIN_SENHA`), gera um cookie de sessão assinado (HMAC-SHA256, `src/lib/sessao.js`) com `Domain=.nastripack.com.br` — funciona nos dois subdomínios — e redireciona para `full.nastripack.com.br`. Qualquer requisição em `full.nastripack.com.br` sem cookie de sessão válido (inclusive `/sync`, `/saude`, `/backfill-*`, `/auth/login`) redireciona para a contracapa; o `scheduled()` do cron não passa por essa checagem, porque não usa `fetch()`.
+- **Duração da sessão**: 400 dias (teto real que os navegadores aceitam para duração de cookie) — não expira "de verdade", mas depois desse prazo pede login de novo uma vez. `GET/POST /logout` limpa o cookie e funciona em qualquer host.
+- **Setup**: além dos secrets já existentes, configurar:
+  ```
+  wrangler secret put SESSION_SECRET
+  wrangler secret put LOGIN_EMAIL
+  wrangler secret put LOGIN_SENHA
+  ```
+  E adicionar a rota do domínio customizado `full2.nastripack.com.br` no `wrangler.toml` (mesmo Worker e binding D1 de `full`, não é um projeto novo).
+- **Simplificação de propósito**: senha guardada em texto simples num secret do Worker (sem hash) — aceitável para uma credencial única de admin, não escalaria para multiusuário real.
+
 ## Backup automático e saúde do sistema
 
 - **`full.nastripack.com.br/saude`** — página operacional (não é o dashboard de negócio): mostra, por loja, se a última sincronização foi recente (verde) ou está atrasada há mais de 2h (vermelho, sinal de que o cron pode ter parado), e uma tabela com as últimas 30 sincronizações (duração, quantidades, erros). Link "Saúde do sistema" no topo da visão geral.
@@ -94,7 +111,7 @@ Cada chamada processa um lote pequeno e devolve `proximo_offset`/`proximo_indice
 - **Limite de subrequests do Worker**: a sincronização usa o endpoint multiget (`/items?ids=...`, até 20 por chamada) em vez de buscar item por item, e processa no máximo 5 páginas por execução (resumível via `?offset=`), para não estourar o limite de subrequests por invocação.
 - **Segredos colados no terminal**: no `cmd.exe` do Windows, `Ctrl+V` no prompt do `wrangler secret put` pode falhar silenciosamente (insere um caractere de controle em vez do texto). Sempre usar clique com o botão direito para colar, e nunca digitar o valor manualmente.
 - **A chave secreta do app no Mercado Livre pode aparecer diferente a cada vez que a tela é reaberta** — copie e use na mesma sessão, sem recarregar a página no meio do caminho.
-- **Basic Auth / proteção de acesso ao dashboard**: decidido por enquanto **não implementar** (feito para ficar simples). Como o dashboard já mostra dados reais de vendas de múltiplas empresas, isso deve ser revisitado antes de expor o link amplamente.
+- **Proteção de acesso ao dashboard**: implementada como contracapa em subdomínio separado (`full2.nastripack.com.br`) com sessão via cookie assinado — ver seção "Login e proteção de acesso" acima. Adiada nas fases iniciais de propósito (ver histórico em `PLANO.md`), fechada antes de conectar mais lojas reais.
 - **Estoque**: `GET /inventories/{inventory_id}/stock/fulfillment` (o `inventory_id` vem no payload do item, campo `item.inventory_id`) retorna `total`, `available_quantity` e `not_available_quantity`. Sem chamada extra por multiget — é uma chamada por produto.
 - **Remessas ao Full**: `GET /stock/fulfillment/operations/search` com `type=INBOUND_RECEPTION`, `seller_id`, `inventory_id`, `date_from`/`date_to` (obrigatórios, formato ISO com `Z`, intervalo máximo de 60 dias). Esse endpoint tem uma **quota própria e restrita** (erro `"over_quota"` mesmo com poucas chamadas em sequência) — por isso a sincronização processa no máximo 8 produtos por execução, com uma pausa de ~1,2s entre chamadas, revezando (round-robin) os produtos há mais tempo sem checar. Com o cron horário, todos os produtos acabam cobertos ao longo do dia.
 - **Custo de transporte das remessas (`valor_transporte`, `transportadora`)**: a API do Mercado Livre **não fornece** esse dado no endpoint de remessas — só quantidade e data. Fica como lacuna conhecida; precisará de entrada manual ou outra fonte quando o RF-016 (consolidação de custos de transporte) for implementado.
@@ -106,11 +123,11 @@ Cada chamada processa um lote pequeno e devolve `proximo_offset`/`proximo_indice
 - **Secrets do GitHub Actions também sofrem do mesmo problema de espaço/quebra de linha extra** ao colar (mesma causa dos secrets do `wrangler`, seção acima) — o erro nesse caso aparece como `Headers.set: "***" ... is an invalid header value` no log do workflow. Sempre copiar o token usando o botão de copiar da própria página (não selecionar o texto manualmente), e se precisar conferir, colar num editor de texto simples antes de colar no campo do secret.
 - **Tarefa agendada precisa rodar em infraestrutura que não depende de uma máquina específica.** A primeira tentativa foi um Agendador de Tarefas do Windows local — só funciona se aquele computador específico estiver ligado e logado no horário, o que não serve quando quem cuida da operação usa outra máquina. GitHub Actions (ou outro runner na nuvem) é a escolha certa pra qualquer automação que precisa rodar "sempre", independente de quem está com o notebook ligado.
 
-## Status (Fase 2 completa + endurecimento operacional)
+## Status (Fase 2 completa + endurecimento operacional + acesso protegido)
 
 - [x] Fase 1: OAuth, multi-tenant, Banco Histórico completo (produtos, vendas, estoque, remessas), dashboard, cron + alerta por e-mail
 - [x] Fase 2: sincronização de visitas/performance, Motor Analítico (`lib/analytics.js`: médias ponderadas por janela, tendência, cobertura, risco, sugestão de envio, projeção de vendas), Planejador Inteligente de Envios no dashboard
 - [x] Histórico de 12 meses (vendas 100%, remessas parcial por quota), página de saúde do sistema, backup semanal automático (GitHub Actions)
-- [ ] Proteção de acesso ao dashboard (login/senha) — adiado de propósito
+- [x] Proteção de acesso ao dashboard (contracapa `full2.nastripack.com.br` + sessão via cookie assinado)
 - [ ] Custo de transporte por remessa — não disponível via API do Mercado Livre, precisa de outra fonte
 - [ ] Fase 3 do PRS: Motor de Regras (alertas configuráveis) e camada de IA (diagnósticos e recomendações em linguagem natural)

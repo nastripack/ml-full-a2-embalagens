@@ -3,13 +3,34 @@ import { handleSync, runSyncForLoja } from "./routes/sync.js";
 import { handleDashboard } from "./routes/dashboard.js";
 import { handleBackfillRemessas, handleBackfillVendas } from "./routes/backfill.js";
 import { handleSaude } from "./routes/saude.js";
+import { handleLoginPage, handleLoginSubmit, handleLogout } from "./routes/login.js";
+import { verificarToken, lerCookie } from "./lib/sessao.js";
 import { enviarAlertaFalha } from "./lib/alertas.js";
+
+const HOST_LOGIN = "full2.nastripack.com.br";
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
     try {
+      // /logout funciona em qualquer host, mesmo sem sessao valida
+      if (url.pathname === "/logout") return handleLogout(request, env);
+
+      // full2.nastripack.com.br so mostra a tela de login - e a "contracapa"
+      if (url.hostname === HOST_LOGIN) {
+        if (url.pathname === "/login" && request.method === "POST") return handleLoginSubmit(request, env);
+        return handleLoginPage(request, env);
+      }
+
+      // qualquer outro host (o dashboard de verdade) exige sessao valida antes de qualquer rota
+      const token = lerCookie(request, "sessao");
+      const sessao = await verificarToken(env, token);
+      if (!sessao) {
+        const redirect = encodeURIComponent(url.pathname + url.search);
+        return Response.redirect(`https://${HOST_LOGIN}/login?redirect=${redirect}`, 302);
+      }
+
       if (url.pathname === "/auth/login") return handleLogin(request, env);
       if (url.pathname === "/auth/callback") return handleCallback(request, env);
       if (url.pathname === "/sync") return handleSync(request, env);

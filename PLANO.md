@@ -135,5 +135,21 @@ Usuário pediu uma revisão dos riscos/pontas soltas do projeto e sugestões for
   - Testado via `workflow_dispatch` (disparo manual): sucesso, commit `65f71be` feito por `github-actions[bot]`.
 - **Página `/saude`**: visão operacional simples (não é o dashboard de negócio) lendo a tabela `eventos` — mostra card verde/vermelho por loja (sincronizou nas últimas 2h ou não) e tabela com as últimas 30 sincronizações, duração e erros. Já existiam todos os dados, só faltava expor.
 
+## Login com contracapa (full2.nastripack.com.br) protegendo o dashboard (concluído)
+
+Pedido do usuário: proteger o acesso com uma "contracapa" em subdomínio separado (`full2.nastripack.com.br`), caixa central de e-mail+senha; ao acertar, abre `full.nastripack.com.br`. Sessão sem expiração de propósito ("nunca fechar o login") — micro-SaaS interno, sempre acessado do computador da empresa.
+
+**Ponto crítico identificado antes de implementar**: um redirecionamento simples de `full2` pra `full` não protege nada sozinho — sem checagem de sessão, dá pra pular a contracapa digitando o endereço direto. Por isso a implementação exige uma sessão de verdade (cookie assinado), não só uma tela seguida de redirect.
+
+**Construído**:
+1. `wrangler.toml`: segunda rota de domínio customizado, `full2.nastripack.com.br` (mesmo Worker, mesmo binding D1).
+2. `src/lib/sessao.js`: `criarToken`/`verificarToken` com HMAC-SHA256 (`crypto.subtle`, secret `SESSION_SECRET`), formato `base64(email:expira).assinatura`, 400 dias (teto real aceito por navegadores para duração de cookie).
+3. `src/routes/login.js`: `handleLoginPage` (GET, caixa central), `handleLoginSubmit` (POST, confere contra `LOGIN_EMAIL`/`LOGIN_SENHA`, gera cookie com `Domain=.nastripack.com.br` se bater), `handleLogout` (limpa cookie).
+4. `src/index.js`: no início do `fetch()`, `full2.nastripack.com.br` serve só a tela de login; qualquer outro host checa o cookie de sessão antes de qualquer rota (`/`, `/auth/login`, `/auth/callback`, `/sync`, `/backfill-*`, `/saude`), redirecionando pra `full2` se inválido. `/logout` funciona em qualquer host. `scheduled()` não passa pelo `fetch()`, então o cron continua sem checagem de sessão (correto, não é uma requisição HTTP externa).
+
+**Verificado em produção**: acesso direto a `full.nastripack.com.br/saude` sem cookie redireciona para `full2.nastripack.com.br/login`; credenciais erradas mostram "E-mail ou senha incorretos" sem criar cookie (confirmado via rede: POST retornou 401); credenciais corretas entram no dashboard e a sessão persiste entre visitas.
+
+**Simplificado de propósito**: senha em texto simples num secret do Worker (sem hash) — aceitável para credencial única de admin, não escalaria para multiusuário real.
+
 ## Próxima fase (não iniciada)
-Fase 3 do roadmap do PRS: Motor de Regras (políticas/alertas configuráveis) e camada de Inteligência Artificial (diagnósticos e recomendações em linguagem natural, consultando só o Banco Histórico + Motor Analítico + Motor de Regras — nunca a API do ML diretamente, seção 10.2 do PRS). Ao entrar nela, revisitar tambem: custo de transporte por remessa (RF-016), e proteção de acesso ao dashboard antes de conectar mais lojas reais.
+Fase 3 do roadmap do PRS: Motor de Regras (políticas/alertas configuráveis) e camada de Inteligência Artificial (diagnósticos e recomendações em linguagem natural, consultando só o Banco Histórico + Motor Analítico + Motor de Regras — nunca a API do ML diretamente, seção 10.2 do PRS). Ao entrar nela, revisitar também: custo de transporte por remessa (RF-016).
