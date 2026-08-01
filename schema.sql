@@ -103,6 +103,25 @@ CREATE TABLE IF NOT EXISTS eventos (
 );
 CREATE INDEX IF NOT EXISTS idx_eventos_loja ON eventos(loja_id);
 
+-- Central de Missoes (Motor de Regras, Fase 3): cada linha e uma situacao detectada para um produto,
+-- fica aberta ate deixar de existir (auto-resolvida) ou o usuario marcar executada/ignorada.
+CREATE TABLE IF NOT EXISTS missoes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  loja_id TEXT NOT NULL,
+  produto_id INTEGER,
+  tipo TEXT NOT NULL,
+  prioridade TEXT NOT NULL,
+  situacao TEXT NOT NULL,
+  motivo TEXT NOT NULL,
+  impacto_estimado TEXT,
+  status TEXT NOT NULL DEFAULT 'aberta',
+  criado_em TEXT DEFAULT (datetime('now')),
+  resolvido_em TEXT,
+  FOREIGN KEY (produto_id) REFERENCES produtos(id)
+);
+CREATE INDEX IF NOT EXISTS idx_missoes_loja ON missoes(loja_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_missoes_aberta ON missoes(loja_id, produto_id, tipo) WHERE status = 'aberta';
+
 -- Suporte tecnico ao OAuth (nao faz parte do modelo de negocio do PRS)
 CREATE TABLE IF NOT EXISTS ml_auth (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

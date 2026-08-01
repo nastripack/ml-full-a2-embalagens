@@ -95,6 +95,23 @@ export function calcularNivelConfianca(linhasDiaAtras) {
 
 const RANK_PRIORIDADE = { critico: 0, alto: 1, medio: 2, sem_dados: 3, nao_enviar: 4 };
 
+// Indice de saude da operacao (secao 8, "Indice de saude da operacao"): 100 menos a proporcao de
+// produtos em risco real (ruptura ou armazenagem com demanda de verdade). Produtos sem demanda
+// (cobertura infinita, "nao_enviar" por falta de giro) nao contam contra a saude - nao sao um
+// problema, so nao precisam de envio. Produtos "sem_dados" (sem estoque sincronizado) ficam de fora
+// da base de calculo, por nao termos indicador confiavel pra eles ainda.
+export function calcularIndiceSaude(planejador) {
+  const relevantes = planejador.filter(p => p.prioridade !== "sem_dados");
+  if (relevantes.length === 0) return null;
+
+  const emRisco = relevantes.filter(p =>
+    p.prioridade === "critico" || p.prioridade === "alto" ||
+    (p.prioridade === "nao_enviar" && p.cobertura !== Infinity)
+  ).length;
+
+  return Math.round(100 * (1 - emRisco / relevantes.length));
+}
+
 // Monta a lista do Planejador Inteligente de Envios (secao 12.4) para todos os produtos Full de uma loja.
 export async function listarPlanejadorEnvios(db, lojaId) {
   const produtos = await db.prepare("SELECT id, mlb, nome FROM produtos WHERE loja_id = ?").bind(lojaId).all();

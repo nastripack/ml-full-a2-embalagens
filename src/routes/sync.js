@@ -3,6 +3,7 @@ import {
   getStockFulfillment, getInboundReceptions, getItemVisits
 } from "../lib/mercadolivre.js";
 import { upsertProduto, inserirVenda, inserirEstoque, inserirEnvio, inserirPerformance, registrarEvento } from "../lib/db.js";
+import { gerarMissoes } from "../lib/regras.js";
 
 // Janela curta e rapida para o sync de rotina (cron horario) - so precisa pegar o que e novo desde a
 // ultima execucao. O historico profundo (ate 12 meses) e responsabilidade do backfill separado
@@ -137,6 +138,15 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   }
 
   resumo.tempos_ms.performance = Date.now() - inicio;
+
+  // 5. Motor de Regras: interpreta os indicadores ja calculados e atualiza a Central de Missoes.
+  // Sem chamada de API externa, so leitura/escrita no D1 - custo de tempo desprezivel.
+  try {
+    resumo.missoes = await gerarMissoes(db, lojaId);
+  } catch (err) {
+    resumo.erros.push(`motor de regras: ${err.message}`);
+  }
+  resumo.tempos_ms.missoes = Date.now() - inicio;
 
   await registrarEvento(db, lojaId, "sincronizacao_concluida", null, resumo, "worker_sync");
 

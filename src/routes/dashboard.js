@@ -1,4 +1,4 @@
-import { listarPlanejadorEnvios } from "../lib/analytics.js";
+import { listarPlanejadorEnvios, calcularIndiceSaude } from "../lib/analytics.js";
 
 const ROTULO_PRIORIDADE = {
   critico: "Crítico",
@@ -18,13 +18,13 @@ const ROTULO_TENDENCIA = {
 
 const ROTULO_CONFIANCA = { alta: "Alta", media: "Média", baixa: "Baixa" };
 
-function escapeHtml(str) {
+export function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   }[c]));
 }
 
-function layout(titulo, corpo) {
+export function layout(titulo, corpo) {
   return `<!doctype html>
 <html lang="pt-br">
 <head>
@@ -50,7 +50,15 @@ function layout(titulo, corpo) {
   .badge-critico { background: #fde2e1; color: #a31510; }
   .badge-alto { background: #fef0c7; color: #92400e; }
   .badge-medio { background: #e0edff; color: #1e40af; }
+  .badge-baixo { background: #eef2f5; color: #4b5563; }
   .badge-sem_dados { background: #eee; color: #666; }
+  .missao { background: white; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .missao .situacao { font-weight: 600; margin: 0.4rem 0 0.2rem; }
+  .missao .motivo, .missao .impacto { font-size: 0.88rem; color: #444; margin: 0.15rem 0; }
+  .missao .acoes { margin-top: 0.6rem; }
+  .missao .acoes button { font-size: 0.8rem; padding: 0.3rem 0.7rem; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; margin-right: 0.5rem; }
+  .missao .acoes button:hover { background: #eee; }
+  .saude-score { font-size: 2rem; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -149,6 +157,16 @@ async function renderLoja(env, lojaId, recemConectado) {
   const planejador = await listarPlanejadorEnvios(db, lojaId);
   const itensAtencao = planejador.filter(p => p.prioridade !== "nao_enviar" && p.prioridade !== "sem_dados");
   const itensCriticos = planejador.filter(p => p.prioridade === "critico" || p.prioridade === "alto").length;
+  const indiceSaude = calcularIndiceSaude(planejador);
+
+  const missoesPorPrioridade = await db.prepare(
+    `SELECT prioridade, COUNT(*) as total FROM missoes WHERE loja_id = ? AND status = 'aberta' GROUP BY prioridade`
+  ).bind(lojaId).all();
+  const contagemMissoes = { critico: 0, alto: 0, medio: 0, baixo: 0 };
+  for (const linha of missoesPorPrioridade.results || []) {
+    if (linha.prioridade in contagemMissoes) contagemMissoes[linha.prioridade] = linha.total;
+  }
+  const totalMissoesAbertas = Object.values(contagemMissoes).reduce((a, b) => a + b, 0);
 
   const linhasProdutos = (produtos.results || []).map(p => `
     <tr>
@@ -166,6 +184,7 @@ async function renderLoja(env, lojaId, recemConectado) {
 
   return layout(`Dashboard - ${nomeLoja}`, `
   <a class="voltar" href="/">&larr; Ver todas as lojas</a>
+  <a class="voltar" href="/missoes?loja=${encodeURIComponent(lojaId)}" style="margin-left:1rem">Central de Missões &rarr;</a>
   ${banner}
   <h1>Dashboard Executivo - ${escapeHtml(nomeLoja)}</h1>
   <div class="cards">
@@ -185,7 +204,19 @@ async function renderLoja(env, lojaId, recemConectado) {
       <div class="label">Itens em risco de ruptura</div>
       <div class="value">${itensCriticos}</div>
     </div>
+    <div class="card">
+      <div class="label">Índice de saúde da operação</div>
+      <div class="value saude-score">${indiceSaude === null ? "-" : `${indiceSaude}%`}</div>
+    </div>
   </div>
+
+  <h2>Resumo executivo</h2>
+  <p>
+    ${totalMissoesAbertas === 0
+      ? "Nenhuma missão aberta no momento — operação sob controle."
+      : `${totalMissoesAbertas} missão(ões) aberta(s): ${contagemMissoes.critico} crítica(s), ${contagemMissoes.alto} alta(s), ${contagemMissoes.medio} média(s), ${contagemMissoes.baixo} baixa(s).
+         <a href="/missoes?loja=${encodeURIComponent(lojaId)}">Ver Central de Missões &rarr;</a>`}
+  </p>
 
   <h2>Planejador Inteligente de Envios</h2>
   <div class="table-wrap"><table>
