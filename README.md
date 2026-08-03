@@ -168,5 +168,5 @@ Formatação de números/moeda/data também foi corrigida nesta etapa: `toFixed(
 - [x] Fase 3 (2ª fatia): Gastos com Transporte (RF-016/12.10) — custo real de Coleta Full via API de Faturamento, 100% automático, sem upload
 - [x] Cron paralelo (multi-loja), filtro de pedidos pagos, Inteligência de Precificação completa (12.9), Aptos para o Full (12.8), Pesquisa Global de SKU (12.2)
 - [x] Formatação de números/moeda/data no padrão brasileiro em todas as telas
-- [ ] Custo do produto (COGS) / comissão do André Filho — parado aguardando decisão do usuário sobre a fonte do dado
+- [x] Comissão de 20% (André Filho) — **descartada por decisão do usuário**: sem marco fixo de custo/preço de venda cadastrado em nenhum lugar, não dá pra calcular margem real (não é só falta de API, é falta de dado)
 - [ ] Risco do cron não escalar para múltiplas lojas — identificado na auditoria da Fase 2, ainda em aberto

@@ -223,5 +223,9 @@ Usuário pediu a lista de próximos passos após fechar a Fase 3 (núcleo + Gast
 
 **Dificuldade prática notada**: como todas as rotas exigem sessão (login com contracapa), não dá pra automatizar chamadas via `curl`/shell — cada rodada do backfill precisou ser acessada manualmente pelo usuário no navegador dele, com o assistente indicando a próxima URL a cada resposta. Funciona, mas é lento pra backfills grandes; vale lembrar disso se precisar rodar um backfill assim de novo no futuro (e para lojas adicionais quando conectadas).
 
+## Comissão de 20% (André Filho) — descartada
+
+Usuário decidiu **não implementar** essa parte: sem um marco fixo de referência de preço de custo/preço de venda cadastrado em lugar nenhum (nem no sistema, nem em ERP externo), não tem como calcular margem real de forma confiável — não é só falta de fonte automática, é falta de dado de verdade. "Capital necessário" em Aptos para o Full (12.8) permanece com a mesma limitação, documentada no README.
+
 ## Próxima fase (não iniciada)
-Custo do produto (COGS) — necessário pra calcular a comissão de 20% pedida para o André Filho e o "capital necessário" de Aptos para o Full — segue sem fonte definida, aguardando decisão do usuário (ele confirmou que não usa ERP/sistema de gestão com API própria, e pediu pra não mexer nisso por enquanto). Fase 3 do PRS está com o núcleo + as 5 ações completas; itens menores ainda não abordados: RB-005 (desconto de ruptura recente na projeção) e simulação de envio (12.2/12.4, UI adicional).
+Fase 3 do PRS está com o núcleo + as 5 ações completas. Itens menores ainda não abordados: RB-005 (desconto de ruptura recente na projeção) e simulação de envio (12.2/12.4, UI adicional).
