@@ -28,8 +28,10 @@ src/
     login.js           /login - contracapa de acesso ao site (e-mail+senha, separado do OAuth acima)
     sync.js            /sync - sincronizacao de rotina (rapida, janela curta, chamada pelo cron)
     backfill.js         /backfill-vendas, /backfill-remessas - historico profundo, manual, resumivel
-    dashboard.js       /  - dashboard (visao geral, por loja, Planejador de Envios, resumo executivo)
+    dashboard.js       /  - dashboard (visao geral, por loja, Planejador de Envios, resumo executivo, busca)
     missoes.js          /missoes - Central de Missoes (Fase 3): lista, marca executada/ignorada
+    pesquisa.js          /pesquisa - Pesquisa Global de SKU: busca por SKU/MLB/nome, painel completo
+    aptos.js             /aptos-full - Aptos para o Full: anuncios fora do Full com potencial de migracao
     saude.js           /saude - pagina operacional: status das sincronizacoes, nao e o dashboard de negocio
 migrations/            scripts de migracao ja aplicados em producao (nao reaplicar)
 schema.sql             schema completo, usado apenas em instalacoes novas (wrangler d1 execute)
@@ -125,6 +127,16 @@ O dashboard (`full.nastripack.com.br`) fica atrás de uma "contracapa" em um sub
 - **Limitação conhecida (aceita pelo usuário)**: a API só dá o **total agregado por mês**, sem detalhamento por coleta individual. Não dá pra saber quanto custou uma remessa específica, só o total do período.
 - **Seção "Gastos com Transporte (Coleta Full)"** no dashboard individual: custo do mês mais recente com dado disponível (pode não ser o mês corrente, se ainda não houve cobrança lançada), variação % vs. o mês anterior (quando há histórico dos dois), e custo médio por unidade enviada (cruzando com `envios` **do mesmo período do custo exibido** — importante não misturar meses diferentes nessa conta).
 
+## Cinco ações pós-Fase 3 (auditoria da Fase 2 + módulos do PRS)
+
+1. **Cron paralelo**: `scheduled()` (`src/index.js`) rodava todas as lojas em sequência num `for` — risco real de estourar o teto de execução do Worker com várias lojas conectadas. Trocado por `Promise.allSettled`, rodando todas em paralelo (I/O-bound, esperando resposta da API do ML). Cada falha continua isolada e dispara alerta por e-mail individualmente.
+2. **Pedidos cancelados**: `getOrdersSearch`/`getOrdersSearchPage` (`src/lib/mercadolivre.js`) agora passam `order.status=paid` pra API — evita contar pedidos cancelados/não pagos como venda. Vale só daqui pra frente, sem expurgar vendas já gravadas.
+3. **Inteligência de Precificação completa** (PRS 12.9): a missão de queda de valor líquido (`src/lib/regras.js`) agora também calcula impacto financeiro mensal estimado e sugere um novo preço pra preservar a margem anterior, usando o preço bruto e a taxa de tarifa atual (ambos já disponíveis na mesma consulta).
+4. **Aptos para o Full** (PRS 12.8): vendas de anúncios fora do Full — antes descartadas — agora são gravadas em `vendas_fora_full` (dado que já vem de graça no `order_item`, sem chamada de API extra). `listarAptosParaFull` (`src/lib/analytics.js`) calcula um score 0-100 (regularidade + crescimento + estabilidade) por MLB, exposto em `/aptos-full?loja=X`. **Sem custo do produto cadastrado, não é possível calcular capital necessário em R$** — a tela mostra só a quantidade sugerida em unidades. **Bug corrigido após testar com dado real**: produtos com uma única venda isolada há mais de 60 dias recebiam score moderado (45) porque "sem dado" era lido como "estabilidade máxima" no cálculo do coeficiente de variação — corrigido para exigir pelo menos alguma venda nos últimos 60 dias.
+5. **Pesquisa Global de SKU** (PRS 12.2): `/pesquisa?loja=X&q=texto` busca por SKU/MLB/nome e mostra um painel completo do produto (identificação, indicador de saúde, estoque, análise da IA/missões, envios, vendas, performance), reaproveitando dados e funções já existentes. Simulação de envio fica fora de escopo.
+
+Formatação de números/moeda/data também foi corrigida nesta etapa: `toFixed(2)` produzia formato americano (`10002.69`) e datas apareciam em ISO (`2026-08-03`) — `formatarMoeda`/`formatarNumero`/`formatarData` (`dashboard.js`) agora usam `toLocaleString('pt-BR')` e reformatação de string em todas as telas.
+
 ## Decisões e lições aprendidas (vale ler antes de mexer)
 
 - **API de Faturamento exige `document_type=BILL`** em `/billing/integration/monthly/periods` e em `.../summary/details` — sem esse parâmetro, os dois retornam erro 422 `MISSING_PARAMETER_ERROR`, algo que não estava claro na documentação pública consultada antes de implementar. Só foi descoberto testando ao vivo em produção (registrado no erro devolvido pela própria API).
@@ -146,7 +158,7 @@ O dashboard (`full.nastripack.com.br`) fica atrás de uma "contracapa" em um sub
 - **Secrets do GitHub Actions também sofrem do mesmo problema de espaço/quebra de linha extra** ao colar (mesma causa dos secrets do `wrangler`, seção acima) — o erro nesse caso aparece como `Headers.set: "***" ... is an invalid header value` no log do workflow. Sempre copiar o token usando o botão de copiar da própria página (não selecionar o texto manualmente), e se precisar conferir, colar num editor de texto simples antes de colar no campo do secret.
 - **Tarefa agendada precisa rodar em infraestrutura que não depende de uma máquina específica.** A primeira tentativa foi um Agendador de Tarefas do Windows local — só funciona se aquele computador específico estiver ligado e logado no horário, o que não serve quando quem cuida da operação usa outra máquina. GitHub Actions (ou outro runner na nuvem) é a escolha certa pra qualquer automação que precisa rodar "sempre", independente de quem está com o notebook ligado.
 
-## Status (Fase 3 em andamento — 1ª e 2ª fatias completas)
+## Status (Fase 3 quase completa)
 
 - [x] Fase 1: OAuth, multi-tenant, Banco Histórico completo (produtos, vendas, estoque, remessas), dashboard, cron + alerta por e-mail
 - [x] Fase 2: sincronização de visitas/performance, Motor Analítico (`lib/analytics.js`: médias ponderadas por janela, tendência, cobertura, risco, sugestão de envio, projeção de vendas), Planejador Inteligente de Envios no dashboard
@@ -154,6 +166,7 @@ O dashboard (`full.nastripack.com.br`) fica atrás de uma "contracapa" em um sub
 - [x] Proteção de acesso ao dashboard (contracapa `full2.nastripack.com.br` + sessão via cookie assinado)
 - [x] Fase 3 (1ª fatia): Motor de Regras (`lib/regras.js`), Central de Missões (`/missoes`), Índice de Saúde da Operação e Resumo Executivo no dashboard
 - [x] Fase 3 (2ª fatia): Gastos com Transporte (RF-016/12.10) — custo real de Coleta Full via API de Faturamento, 100% automático, sem upload
-- [ ] Fase 3 (próxima fatia): Inteligência de Precificação completa (12.9), Aptos para o Full (12.8), Pesquisa Global de SKU (12.2)
-- [ ] Filtro de status de pedido no sync (pedidos cancelados podem estar contando como venda) — identificado na auditoria da Fase 2
+- [x] Cron paralelo (multi-loja), filtro de pedidos pagos, Inteligência de Precificação completa (12.9), Aptos para o Full (12.8), Pesquisa Global de SKU (12.2)
+- [x] Formatação de números/moeda/data no padrão brasileiro em todas as telas
+- [ ] Custo do produto (COGS) / comissão do André Filho — parado aguardando decisão do usuário sobre a fonte do dado
 - [ ] Risco do cron não escalar para múltiplas lojas — identificado na auditoria da Fase 2, ainda em aberto
