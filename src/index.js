@@ -4,6 +4,7 @@ import { handleDashboard } from "./routes/dashboard.js";
 import { handleBackfillRemessas, handleBackfillVendas } from "./routes/backfill.js";
 import { handleSaude } from "./routes/saude.js";
 import { handleMissoes, handleMissaoStatus } from "./routes/missoes.js";
+import { handlePesquisa } from "./routes/pesquisa.js";
 import { handleLoginPage, handleLoginSubmit, handleLogout } from "./routes/login.js";
 import { verificarToken, lerCookie } from "./lib/sessao.js";
 import { enviarAlertaFalha } from "./lib/alertas.js";
@@ -39,6 +40,7 @@ export default {
       if (url.pathname === "/backfill-vendas") return handleBackfillVendas(request, env);
       if (url.pathname === "/saude") return handleSaude(request, env);
       if (url.pathname === "/missoes") return handleMissoes(request, env);
+      if (url.pathname === "/pesquisa") return handlePesquisa(request, env);
       if (/^\/missoes\/\d+\/status$/.test(url.pathname) && request.method === "POST") return handleMissaoStatus(request, env);
       if (url.pathname === "/") return handleDashboard(request, env);
 

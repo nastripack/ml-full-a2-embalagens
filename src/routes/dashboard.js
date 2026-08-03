@@ -217,6 +217,12 @@ async function renderLoja(env, lojaId, recemConectado) {
   <a class="voltar" href="/missoes?loja=${encodeURIComponent(lojaId)}" style="margin-left:1rem">Central de Missões &rarr;</a>
   ${banner}
   <h1>Dashboard Executivo - ${escapeHtml(nomeLoja)}</h1>
+  <form method="GET" action="/pesquisa" style="margin-bottom:1.5rem;">
+    <input type="hidden" name="loja" value="${escapeHtml(lojaId)}">
+    <input type="text" name="q" placeholder="Buscar por SKU, MLB ou nome..."
+      style="padding:0.6rem 0.9rem;border:1px solid #ccc;border-radius:6px;width:320px;font-size:0.95rem;">
+    <button type="submit" style="padding:0.6rem 1rem;border-radius:6px;border:none;background:#1a56db;color:white;cursor:pointer;">Buscar</button>
+  </form>
   <div class="cards">
     <div class="card">
       <div class="label">Valor liquido vendido (30 dias)</div>
