@@ -14,8 +14,9 @@ const QUEDA_VALOR_LIQUIDO_ALERTA = 0.10; // RB-004: queda >= 10% no liquido por 
 // excluidas da comparacao de valor liquido para nao gerar falso alerta de "queda de preco".
 const DATA_CORTE_COMISSAO = "2026-08-01";
 
+// Formato brasileiro (virgula decimal) - usado so nos textos das missoes, nunca em calculo.
 function arredonda(n, casas = 2) {
-  return Math.round(n * 10 ** casas) / 10 ** casas;
+  return Number(n).toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
 }
 
 function textoTendencia(tendencia) {

@@ -24,6 +24,15 @@ export function escapeHtml(str) {
   }[c]));
 }
 
+// Formato brasileiro: virgula decimal, ponto de milhar (10002.69 -> 10.002,69).
+export function formatarNumero(n, casas = 2) {
+  return Number(n).toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+}
+
+export function formatarMoeda(n) {
+  return `R$ ${formatarNumero(n)}`;
+}
+
 export function layout(titulo, corpo) {
   return `<!doctype html>
 <html lang="pt-br">
@@ -101,7 +110,7 @@ async function renderOverview(env) {
     <tr class="${i === 0 ? "rank-1" : ""}">
       <td>${i + 1}</td>
       <td><a href="/?loja=${encodeURIComponent(r.loja_id)}">${escapeHtml(r.nickname || r.loja_id)}</a></td>
-      <td>R$ ${Number(r.total).toFixed(2)}</td>
+      <td>${formatarMoeda(r.total)}</td>
       <td>${r.pedidos}</td>
     </tr>`).join("");
 
@@ -110,7 +119,7 @@ async function renderOverview(env) {
       <td>${escapeHtml(p.nome)}</td>
       <td>${escapeHtml(p.nickname)}</td>
       <td>${p.qtd}</td>
-      <td>R$ ${Number(p.receita).toFixed(2)}</td>
+      <td>${formatarMoeda(p.receita)}</td>
     </tr>`).join("");
 
   return layout("Visao Geral - ML Full", `
@@ -211,7 +220,7 @@ async function renderLoja(env, lojaId, recemConectado) {
   <div class="cards">
     <div class="card">
       <div class="label">Valor liquido vendido (30 dias)</div>
-      <div class="value">R$ ${Number(totalVendido.total).toFixed(2)}</div>
+      <div class="value">${formatarMoeda(totalVendido.total)}</div>
     </div>
     <div class="card">
       <div class="label">Pedidos (30 dias)</div>
@@ -243,15 +252,15 @@ async function renderLoja(env, lojaId, recemConectado) {
   <div class="cards">
     <div class="card">
       <div class="label">Custo de coleta - ${custoMesAtual ? custoMesAtual.periodo.slice(0, 7) : "mês atual"}</div>
-      <div class="value">R$ ${custoMesAtual ? Number(custoMesAtual.valor).toFixed(2) : "0,00"}</div>
+      <div class="value">${formatarMoeda(custoMesAtual ? custoMesAtual.valor : 0)}</div>
     </div>
     <div class="card">
       <div class="label">Variação vs. mês anterior</div>
-      <div class="value" style="font-size:1.3rem">${variacaoColeta === null ? "-" : `${variacaoColeta > 0 ? "+" : ""}${(variacaoColeta * 100).toFixed(1)}%`}</div>
+      <div class="value" style="font-size:1.3rem">${variacaoColeta === null ? "-" : `${variacaoColeta > 0 ? "+" : ""}${formatarNumero(variacaoColeta * 100, 1)}%`}</div>
     </div>
     <div class="card">
       <div class="label">Custo médio por unidade enviada</div>
-      <div class="value" style="font-size:1.3rem">${custoMedioUnidade === null ? "-" : `R$ ${custoMedioUnidade.toFixed(2)}`}</div>
+      <div class="value" style="font-size:1.3rem">${custoMedioUnidade === null ? "-" : formatarMoeda(custoMedioUnidade)}</div>
     </div>
   </div>
   <p style="font-size:0.85rem; color:#666; margin-top:-0.5rem">
@@ -270,7 +279,7 @@ async function renderLoja(env, lojaId, recemConectado) {
       <tr>
         <td>${escapeHtml(p.nome)}</td>
         <td>${p.estoqueAtual}</td>
-        <td>${p.mediaDiaria.toFixed(2)}</td>
+        <td>${formatarNumero(p.mediaDiaria)}</td>
         <td>${p.cobertura === Infinity ? "-" : Math.round(p.cobertura)}</td>
         <td>${ROTULO_TENDENCIA[p.tendencia]}</td>
         <td>${ROTULO_CONFIANCA[p.confianca]}</td>
