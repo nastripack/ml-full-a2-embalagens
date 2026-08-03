@@ -82,9 +82,11 @@ async function situacoesPrecificacao(db, lojaId, produtosPorId) {
   const rows = await db.prepare(
     `SELECT produto_id,
             AVG(CASE WHEN dias_atras < 7 THEN valor_liquido * 1.0 / quantidade END) as recente,
-            AVG(CASE WHEN dias_atras BETWEEN 31 AND 60 THEN valor_liquido * 1.0 / quantidade END) as anterior
+            AVG(CASE WHEN dias_atras BETWEEN 31 AND 60 THEN valor_liquido * 1.0 / quantidade END) as anterior,
+            AVG(CASE WHEN dias_atras < 7 THEN valor_bruto * 1.0 / quantidade END) as preco_bruto_recente,
+            SUM(CASE WHEN dias_atras < 7 THEN quantidade ELSE 0 END) as unidades_recentes
      FROM (
-       SELECT produto_id, valor_liquido, quantidade,
+       SELECT produto_id, valor_liquido, valor_bruto, quantidade,
               CAST(julianday('now') - julianday(data_hora) AS INTEGER) as dias_atras
        FROM vendas
        WHERE loja_id = ? AND data_hora >= datetime('now', '-60 days') AND data_hora >= ? AND quantidade > 0
@@ -100,13 +102,25 @@ async function situacoesPrecificacao(db, lojaId, produtosPorId) {
 
     const produto = produtosPorId[row.produto_id];
     const nome = produto?.nome || `produto ${row.produto_id}`;
+
+    // PRS 12.9: impacto financeiro por SKU e sugestao de novo preco pra preservar a margem anterior.
+    const impactoMensal = (row.anterior - row.recente) * (row.unidades_recentes / 7) * 30;
+    let textoImpacto = "Verificar se houve mudança de tarifa/comissão do Mercado Livre ou se é necessário reajustar o preço.";
+    if (row.preco_bruto_recente > 0) {
+      const feeRateAtual = (row.preco_bruto_recente - row.recente) / row.preco_bruto_recente;
+      if (feeRateAtual < 1) {
+        const novoPreco = row.anterior / (1 - feeRateAtual);
+        textoImpacto = `Impacto estimado de R$ ${arredonda(impactoMensal)}/mês se a situação persistir. Para manter a margem anterior, considere ajustar o preço para ~R$ ${arredonda(novoPreco)} (preço atual: R$ ${arredonda(row.preco_bruto_recente)}).`;
+      }
+    }
+
     situacoes.push({
       produtoId: row.produto_id,
       tipo: "precificacao",
       prioridade: "alto",
       situacao: `${nome}: valor líquido por unidade caiu ${arredonda(queda * 100)}% nos últimos 7 dias frente à média de 31-60 dias atrás.`,
       motivo: `Líquido médio recente de R$ ${arredonda(row.recente)} contra R$ ${arredonda(row.anterior)} anteriormente.`,
-      impacto: "Verificar se houve mudança de tarifa/comissão do Mercado Livre ou se é necessário reajustar o preço."
+      impacto: textoImpacto
     });
   }
   return situacoes;
