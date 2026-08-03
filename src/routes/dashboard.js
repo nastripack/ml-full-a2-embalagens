@@ -231,6 +231,7 @@ async function renderLoja(env, lojaId, recemConectado) {
   return layout(`Dashboard - ${nomeLoja}`, `
   <a class="voltar" href="/">&larr; Ver todas as lojas</a>
   <a class="voltar" href="/missoes?loja=${encodeURIComponent(lojaId)}" style="margin-left:1rem">Central de Missões &rarr;</a>
+  <a class="voltar" href="/aptos-full?loja=${encodeURIComponent(lojaId)}" style="margin-left:1rem">Aptos para o Full &rarr;</a>
   ${banner}
   <h1>Dashboard Executivo - ${escapeHtml(nomeLoja)}</h1>
   <form method="GET" action="/pesquisa" style="margin-bottom:1.5rem;">

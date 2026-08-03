@@ -175,3 +175,67 @@ export async function listarPlanejadorEnvios(db, lojaId) {
   resultado.sort((a, b) => RANK_PRIORIDADE[a.prioridade] - RANK_PRIORIDADE[b.prioridade]);
   return resultado;
 }
+
+// Aptos para o Full (PRS secao 12.8): anuncios fora do Full com potencial comprovado de migracao,
+// a partir de vendas_fora_full (populada pelo sync/backfill quando um order_item nao bate com
+// nenhum produto do Full). Score 0-100 combina regularidade, crescimento e estabilidade -
+// mesma logica de tendencia/volatilidade ja usada no Planejador, aplicada aqui por MLB.
+export async function listarAptosParaFull(db, lojaId) {
+  const rows = await db.prepare(
+    `SELECT mlb, titulo, CAST(julianday('now') - julianday(data_hora) AS INTEGER) as dias_atras, SUM(quantidade) as qtd
+     FROM vendas_fora_full
+     WHERE loja_id = ? AND data_hora >= datetime('now', '-90 days')
+     GROUP BY mlb, dias_atras`
+  ).bind(lojaId).all();
+
+  const porMlb = {};
+  for (const linha of rows.results || []) {
+    if (!porMlb[linha.mlb]) porMlb[linha.mlb] = { titulo: linha.titulo, linhas: [] };
+    if (linha.titulo && !porMlb[linha.mlb].titulo) porMlb[linha.mlb].titulo = linha.titulo;
+    porMlb[linha.mlb].linhas.push(linha);
+  }
+
+  const resultado = [];
+  for (const [mlb, dados] of Object.entries(porMlb)) {
+    const linhas = dados.linhas;
+    const vendas30 = somaJanela(linhas, 0, 30);
+    const vendas60 = somaJanela(linhas, 0, 60);
+    const vendas90 = somaJanela(linhas, 0, 90);
+    const vendas31a60 = somaJanela(linhas, 30, 60);
+
+    // Sem venda nos ultimos 60 dias: nao ha potencial comprovado de verdade, so uma venda isolada
+    // e antiga. Sem isso, cv=0 (sem dado) e' lido como "estabilidade maxima", inflando o score
+    // artificialmente - mesmo tipo de bug de "zero-inflation" ja corrigido no Planejador (Fase 2).
+    if (vendas60 === 0) continue;
+
+    // Regularidade: proporcao de dias com venda nos ultimos 30 dias.
+    const diasComVenda30 = new Set(linhas.filter(l => l.dias_atras < 30 && l.qtd > 0).map(l => l.dias_atras)).size;
+    const regularidade = diasComVenda30 / 30;
+
+    // Crescimento: janela recente (30d) vs anterior (31-60d), normalizado pra 0-1 (crescimento >= 100% satura em 1).
+    const crescimento = vendas31a60 > 0 ? (vendas30 - vendas31a60) / vendas31a60 : (vendas30 > 0 ? 1 : 0);
+    const crescimentoNormalizado = Math.max(0, Math.min(1, (crescimento + 1) / 2));
+
+    // Estabilidade: inverso do coeficiente de variacao semanal (mesmo metodo de classificarTendencia).
+    const cv = coeficienteVariacao(totaisSemanais(linhas, 8));
+    const estabilidade = Math.max(0, 1 - Math.min(cv, 1));
+
+    const score = Math.round(100 * (0.4 * regularidade + 0.3 * crescimentoNormalizado + 0.3 * estabilidade));
+    const mediaDiaria30 = vendas30 / 30;
+    const sugestaoInicial = Math.round(mediaDiaria30 * COBERTURA_ALVO_DIAS);
+
+    resultado.push({
+      mlb,
+      titulo: dados.titulo || mlb,
+      vendas30,
+      vendas60,
+      vendas90,
+      regularidade: Math.round(regularidade * 100),
+      score,
+      sugestaoInicial
+    });
+  }
+
+  resultado.sort((a, b) => b.score - a.score);
+  return resultado;
+}

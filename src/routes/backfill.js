@@ -5,7 +5,7 @@
 // E resumivel via ?indice= para nao depender de uma unica requisicao HTTP muito longa.
 
 import { getValidAccessToken, getInboundReceptions, getOrdersSearchPage } from "../lib/mercadolivre.js";
-import { inserirEnvio, inserirVenda, registrarEvento } from "../lib/db.js";
+import { inserirEnvio, inserirVenda, inserirVendaForaFull, registrarEvento } from "../lib/db.js";
 
 const DIAS_POR_BLOCO = 60;
 const TOTAL_DIAS_BACKFILL = 365;
@@ -125,7 +125,12 @@ export async function handleBackfillVendas(request, env) {
     for (const pedido of pagina.results) {
       for (const item of pedido.order_items || []) {
         const produtoExistente = await db.prepare("SELECT id FROM produtos WHERE loja_id = ? AND mlb = ?").bind(lojaId, item.item.id).first();
-        if (!produtoExistente) continue; // produto ainda nao sincronizado
+        if (!produtoExistente) {
+          // Anuncio fora do Full (PRS 12.8) - roda esse backfill de novo depois do deploy pra
+          // popular ate 12 meses de historico fora do Full de uma vez, sem esperar acumular do zero.
+          await inserirVendaForaFull(db, lojaId, pedido, item);
+          continue;
+        }
         await inserirVenda(db, lojaId, produtoExistente.id, pedido, item);
         vendasInseridas++;
       }

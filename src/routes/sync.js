@@ -2,7 +2,7 @@ import {
   getValidAccessToken, getItemsMultiget, searchUserItems, getOrdersSearch,
   getStockFulfillment, getInboundReceptions, getItemVisits, getBillingPeriods, getBillingSummary
 } from "../lib/mercadolivre.js";
-import { upsertProduto, inserirVenda, inserirEstoque, inserirEnvio, inserirPerformance, registrarEvento, upsertCustoTransporte } from "../lib/db.js";
+import { upsertProduto, inserirVenda, inserirVendaForaFull, inserirEstoque, inserirEnvio, inserirPerformance, registrarEvento, upsertCustoTransporte } from "../lib/db.js";
 import { gerarMissoes } from "../lib/regras.js";
 
 // Janela curta e rapida para o sync de rotina (cron horario) - so precisa pegar o que e novo desde a
@@ -73,7 +73,12 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
           const produtoExistente = await db.prepare("SELECT id FROM produtos WHERE loja_id = ? AND mlb = ?").bind(lojaId, mlb).first();
           produtoId = produtoExistente?.id;
         }
-        if (!produtoId) continue; // produto ainda nao sincronizado nesta rodada
+        if (!produtoId) {
+          // Anuncio fora do Full (PRS 12.8, "Aptos para o Full") - guarda a venda separada,
+          // sem custo extra de API (o dado ja vem no order_item).
+          await inserirVendaForaFull(db, lojaId, pedido, item);
+          continue;
+        }
         await inserirVenda(db, lojaId, produtoId, pedido, item);
         resumo.vendas_analisadas++;
       }
