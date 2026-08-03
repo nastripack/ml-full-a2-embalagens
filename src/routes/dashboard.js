@@ -33,6 +33,22 @@ export function formatarMoeda(n) {
   return `R$ ${formatarNumero(n)}`;
 }
 
+// Formato brasileiro de data: dia/mes/ano (opcionalmente com hora). So reformata a string
+// (YYYY-MM-DD... -> DD/MM/YYYY), sem conversao de fuso - o valor guardado nao muda, so a exibicao.
+export function formatarData(valor, comHora = false) {
+  if (!valor) return "-";
+  const str = String(valor);
+  const dataMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!dataMatch) return str;
+  const [, ano, mes, dia] = dataMatch;
+  let resultado = `${dia}/${mes}/${ano}`;
+  if (comHora) {
+    const horaMatch = str.match(/(\d{2}):(\d{2})/);
+    if (horaMatch) resultado += ` ${horaMatch[1]}:${horaMatch[2]}`;
+  }
+  return resultado;
+}
+
 export function layout(titulo, corpo) {
   return `<!doctype html>
 <html lang="pt-br">
@@ -234,7 +250,7 @@ async function renderLoja(env, lojaId, recemConectado) {
     </div>
     <div class="card">
       <div class="label">Ultima sincronizacao</div>
-      <div class="value" style="font-size:1rem">${ultimaSync ? escapeHtml(ultimaSync.data_hora) : "nunca"}</div>
+      <div class="value" style="font-size:1rem">${ultimaSync ? formatarData(ultimaSync.data_hora, true) : "nunca"}</div>
     </div>
     <div class="card">
       <div class="label">Itens em risco de ruptura</div>

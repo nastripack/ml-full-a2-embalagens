@@ -136,6 +136,22 @@ CREATE TABLE IF NOT EXISTS custos_transporte (
 );
 CREATE INDEX IF NOT EXISTS idx_custos_transporte_loja ON custos_transporte(loja_id);
 
+-- Vendas de anuncios fora do Full (Fase 3, PRS 12.8 "Aptos para o Full") - tabela separada de
+-- `produtos` de proposito, pra nao quebrar a suposicao implicita de "produtos = Full" usada em
+-- todo o resto do sistema. Dado vem do order_item ja buscado no sync, sem chamada de API extra.
+CREATE TABLE IF NOT EXISTS vendas_fora_full (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  loja_id TEXT NOT NULL,
+  pedido_id TEXT NOT NULL,
+  mlb TEXT NOT NULL,
+  titulo TEXT,
+  data_hora TEXT NOT NULL,
+  quantidade INTEGER NOT NULL,
+  valor_bruto REAL,
+  UNIQUE(loja_id, pedido_id, mlb)
+);
+CREATE INDEX IF NOT EXISTS idx_vendas_fora_full_loja ON vendas_fora_full(loja_id);
+
 -- Suporte tecnico ao OAuth (nao faz parte do modelo de negocio do PRS)
 CREATE TABLE IF NOT EXISTS ml_auth (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

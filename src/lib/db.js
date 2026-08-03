@@ -89,6 +89,25 @@ export async function inserirVenda(db, lojaId, produtoId, pedido, item) {
   ).run();
 }
 
+// Vendas de anuncios fora do Full (PRS 12.8) - mesmo order_item ja buscado no sync, sem chamada
+// extra de API. Usa mlb+titulo direto do payload do pedido, ja que nao ha produtoId (produto nao
+// esta cadastrado em `produtos`, que so tem itens Full).
+export async function inserirVendaForaFull(db, lojaId, pedido, item) {
+  const valorBruto = item.unit_price * item.quantity;
+  await db.prepare(
+    `INSERT OR IGNORE INTO vendas_fora_full (loja_id, pedido_id, mlb, titulo, data_hora, quantidade, valor_bruto)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    lojaId,
+    String(pedido.id),
+    item.item.id,
+    item.item.title || null,
+    pedido.date_created,
+    item.quantity,
+    valorBruto
+  ).run();
+}
+
 export async function inserirEstoque(db, lojaId, produtoId, stock) {
   await db.prepare(
     `INSERT INTO estoque_historico (loja_id, produto_id, estoque_full, reservado)

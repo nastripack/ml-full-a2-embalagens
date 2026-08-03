@@ -1,7 +1,7 @@
 // Pesquisa Global de SKU (PRS secao 12.2): busca por SKU/MLB/nome e mostra um painel completo
 // do produto, reaproveitando dados/funcoes ja existentes (sem calculo novo).
 
-import { layout, escapeHtml, formatarMoeda } from "./dashboard.js";
+import { layout, escapeHtml, formatarMoeda, formatarData } from "./dashboard.js";
 import { listarPlanejadorEnvios } from "../lib/analytics.js";
 
 const ROTULO_PRIORIDADE = {
@@ -87,15 +87,15 @@ export async function handlePesquisa(request, env) {
   const indicador = planejador.find(p => p.produtoId === produtoId);
 
   const linhasVendas = (vendas.results || []).map(v => `
-    <tr><td>${escapeHtml(v.data_hora)}</td><td>${v.quantidade}</td><td>${formatarMoeda(v.valor_bruto)}</td><td>${formatarMoeda(v.valor_liquido)}</td></tr>`
+    <tr><td>${formatarData(v.data_hora, true)}</td><td>${v.quantidade}</td><td>${formatarMoeda(v.valor_bruto)}</td><td>${formatarMoeda(v.valor_liquido)}</td></tr>`
   ).join("") || '<tr><td colspan="4">Sem vendas registradas.</td></tr>';
 
   const linhasEnvios = (envios.results || []).map(e => `
-    <tr><td>${escapeHtml(e.data)}</td><td>${escapeHtml(e.remessa || "-")}</td><td>${e.quantidade_enviada ?? "-"}</td></tr>`
+    <tr><td>${formatarData(e.data)}</td><td>${escapeHtml(e.remessa || "-")}</td><td>${e.quantidade_enviada ?? "-"}</td></tr>`
   ).join("") || '<tr><td colspan="3">Sem envios registrados.</td></tr>';
 
   const linhasPerformance = (performance.results || []).map(p => `
-    <tr><td>${escapeHtml(p.data)}</td><td>${p.visualizacoes ?? "-"}</td></tr>`
+    <tr><td>${formatarData(p.data)}</td><td>${p.visualizacoes ?? "-"}</td></tr>`
   ).join("") || '<tr><td colspan="2">Sem dados de performance.</td></tr>';
 
   const analiseIA = (missoesAbertas.results || []).length
@@ -126,7 +126,7 @@ export async function handlePesquisa(request, env) {
   ${painelIndicadores}
 
   <h3>Estoque Full atual</h3>
-  <p>${estoque ? `${estoque.estoque_full ?? "-"} unidades (atualizado em ${escapeHtml(estoque.data_hora)})` : "Sem dado de estoque sincronizado."}</p>
+  <p>${estoque ? `${estoque.estoque_full ?? "-"} unidades (atualizado em ${formatarData(estoque.data_hora, true)})` : "Sem dado de estoque sincronizado."}</p>
 
   <h3>Análise da IA (Motor de Regras)</h3>
   ${analiseIA}

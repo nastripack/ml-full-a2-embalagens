@@ -2,6 +2,8 @@
 // sincronizacoes, duracao, erros e ha quanto tempo cada loja nao atualiza - ajuda a perceber
 // um cron parado ou uma API quebrada antes do usuario notar dado desatualizado.
 
+import { formatarData } from "./dashboard.js";
+
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -44,7 +46,7 @@ export async function handleSaude(request, env) {
     const stale = horasAtras > LIMITE_FRESCOR_HORAS;
     return `<div class="card ${stale ? "card-alerta" : "card-ok"}">
       <div class="label">${escapeHtml(loja.nickname || loja.loja_id)}</div>
-      <div class="value" style="font-size:1rem">${stale ? "⚠️ " : "✅ "}${escapeHtml(evento.data_hora)}</div>
+      <div class="value" style="font-size:1rem">${stale ? "⚠️ " : "✅ "}${formatarData(evento.data_hora, true)}</div>
     </div>`;
   }).join("");
 
@@ -55,7 +57,7 @@ export async function handleSaude(request, env) {
     const numErros = (payload.erros || []).length;
     return `<tr>
       <td>${escapeHtml(r.nickname || r.loja_id)}</td>
-      <td>${escapeHtml(r.data_hora)}</td>
+      <td>${formatarData(r.data_hora, true)}</td>
       <td>${duracaoS}s</td>
       <td>${payload.skus_atualizados ?? "-"}</td>
       <td>${payload.vendas_analisadas ?? "-"}</td>
