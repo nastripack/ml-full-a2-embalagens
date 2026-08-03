@@ -7,6 +7,17 @@ function bufferParaBase64(buffer) {
   return btoa(String.fromCharCode(...new Uint8Array(buffer)));
 }
 
+// Comparacao em tempo constante - evita vazar, por tempo de resposta, quantos caracteres da
+// assinatura estao corretos (ataque de timing). Sempre percorre os dois strings por completo.
+function compararEmTempoConstante(a, b) {
+  if (a.length !== b.length) return false;
+  let diferenca = 0;
+  for (let i = 0; i < a.length; i++) {
+    diferenca |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diferenca === 0;
+}
+
 async function assinar(dado, segredo) {
   const chave = await crypto.subtle.importKey(
     "raw",
@@ -40,7 +51,7 @@ export async function verificarToken(env, token) {
   }
 
   const assinaturaEsperada = await assinar(payload, env.SESSION_SECRET);
-  if (assinaturaEsperada !== assinatura) return null; // token adulterado ou assinado com outro segredo
+  if (!compararEmTempoConstante(assinaturaEsperada, assinatura)) return null; // token adulterado ou assinado com outro segredo
 
   const [email, expiraStr] = payload.split(":");
   const expira = Number(expiraStr);

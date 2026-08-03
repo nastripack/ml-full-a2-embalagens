@@ -113,8 +113,11 @@ export function calcularIndiceSaude(planejador) {
 }
 
 // Monta a lista do Planejador Inteligente de Envios (secao 12.4) para todos os produtos Full de uma loja.
+// So considera anuncios "active": um anuncio pausado ou fechado nao pode ser vendido agora, entao
+// recomendar "enviar X unidades" ou qualquer acao de reposicao/armazenagem pra ele nao faz sentido
+// pratico - achado real na auditoria (51 de 95 produtos nao ativos, 2 fechados ja geravam missao).
 export async function listarPlanejadorEnvios(db, lojaId) {
-  const produtos = await db.prepare("SELECT id, mlb, nome FROM produtos WHERE loja_id = ?").bind(lojaId).all();
+  const produtos = await db.prepare("SELECT id, mlb, nome FROM produtos WHERE loja_id = ? AND status = 'active'").bind(lojaId).all();
 
   const vendasRows = await db.prepare(
     `SELECT produto_id, CAST(julianday('now') - julianday(data_hora) AS INTEGER) as dias_atras, SUM(quantidade) as qtd
