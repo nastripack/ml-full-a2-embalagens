@@ -115,10 +115,19 @@ O dashboard (`full.nastripack.com.br`) fica atrás de uma "contracapa" em um sub
 - **`full.nastripack.com.br/missoes?loja=X`** (Central de Missões, PRS seção 12.3): lista as missões abertas por prioridade, com situação/motivo/impacto e botões para marcar `executada` ou `ignorada` (RF-020/RB-008 — fica registrado o histórico da decisão, não é aprendizado adaptativo de verdade).
 - **Índice de Saúde da Operação** (`calcularIndiceSaude` em `analytics.js`) e o bloco de "Resumo executivo" aparecem no dashboard individual, junto com o link pra Central de Missões.
 - **Bug real encontrado e corrigido antes de fechar esta fatia**: produtos com demanda quase nula (ex: 1 venda em 60 dias) e estoque zerado geravam missão "Crítico" recomendando "enviar 0 unidades" — contraditório. Corrigido: uma missão de reposição só é criada se a quantidade sugerida for maior que zero.
-- **Deixado de propósito para depois**: desconto de ruptura recente na projeção (RB-005) e alerta de custo logístico por unidade — dependem do RF-016 (custo de Coleta Full), ainda não implementado. `Aptos para o Full` (12.8), `Pesquisa Global de SKU` (12.2) e `Gastos com Transporte` (12.10) também ficam para uma próxima fatia.
+- **Deixado de propósito para depois**: desconto de ruptura recente na projeção (RB-005). `Aptos para o Full` (12.8) e `Pesquisa Global de SKU` (12.2) também ficam para uma próxima fatia.
+
+## Gastos com Transporte (Fase 3, segunda fatia)
+
+- **Fonte 100% automática via API** (sem upload de planilha, por decisão do usuário): `src/lib/mercadolivre.js` tem `getBillingPeriods`/`getBillingSummary`, que consultam `/billing/integration/monthly/periods` e `.../summary/details` (grupo `ML`, **`document_type=BILL` é obrigatório** nos dois — a API retorna erro 422 sem esse parâmetro, mesmo não estando claro na documentação pública).
+- **`custos_transporte`** (nova tabela, upsert por `loja_id+periodo+label`): grava **todos** os tipos de cobrança retornados pela API a cada sync, não só transporte — é um subproduto útil (dá pra ver outras tarifas do Mercado Livre no mesmo lugar).
+- **Rótulo confirmado em produção**: `"Custo do serviço de coleta Full"` — testado e validado batendo em centavos (R$ 139,50) com o total apurado manualmente na investigação anterior (17 coletas somadas na tela "Tarifas e cancelamentos").
+- **Limitação conhecida (aceita pelo usuário)**: a API só dá o **total agregado por mês**, sem detalhamento por coleta individual. Não dá pra saber quanto custou uma remessa específica, só o total do período.
+- **Seção "Gastos com Transporte (Coleta Full)"** no dashboard individual: custo do mês mais recente com dado disponível (pode não ser o mês corrente, se ainda não houve cobrança lançada), variação % vs. o mês anterior (quando há histórico dos dois), e custo médio por unidade enviada (cruzando com `envios` **do mesmo período do custo exibido** — importante não misturar meses diferentes nessa conta).
 
 ## Decisões e lições aprendidas (vale ler antes de mexer)
 
+- **API de Faturamento exige `document_type=BILL`** em `/billing/integration/monthly/periods` e em `.../summary/details` — sem esse parâmetro, os dois retornam erro 422 `MISSING_PARAMETER_ERROR`, algo que não estava claro na documentação pública consultada antes de implementar. Só foi descoberto testando ao vivo em produção (registrado no erro devolvido pela própria API).
 - **`sale_fee` (comissão) fica dentro de `order_items[]`, não no pedido**: `inserirVenda` lia `pedido.sale_fee` (campo que não existe nesse nível), então `comissao` era sempre 0 e `valor_liquido` guardado era, na prática, igual a `valor_bruto` — em todas as 1.002 vendas sincronizadas até 31/07/2026. Corrigido para `item.sale_fee` (dentro de cada `order_item`). Por decisão do usuário, a correção vale **só a partir de agosto/2026** — os registros anteriores a essa data continuam com comissão zerada, sem backfill retroativo.
 - **`/orders/search` não filtra por status do pedido**: a sincronização de vendas conta qualquer pedido retornado no período, sem checar se foi cancelado ou nunca pago. Pode estar inflando receita e a média diária do Planejador. Identificado na auditoria da Fase 2 (ver `PLANO.md`), ainda não corrigido.
 - **`logistic_type=fulfillment` é obrigatório** na busca de itens (`/users/{id}/items/search`). Sem esse parâmetro, a API retorna o catálogo inteiro do vendedor (chegamos a ver ~2,4 milhões de resultados para uma conta com só 95 produtos no Full).
@@ -137,14 +146,14 @@ O dashboard (`full.nastripack.com.br`) fica atrás de uma "contracapa" em um sub
 - **Secrets do GitHub Actions também sofrem do mesmo problema de espaço/quebra de linha extra** ao colar (mesma causa dos secrets do `wrangler`, seção acima) — o erro nesse caso aparece como `Headers.set: "***" ... is an invalid header value` no log do workflow. Sempre copiar o token usando o botão de copiar da própria página (não selecionar o texto manualmente), e se precisar conferir, colar num editor de texto simples antes de colar no campo do secret.
 - **Tarefa agendada precisa rodar em infraestrutura que não depende de uma máquina específica.** A primeira tentativa foi um Agendador de Tarefas do Windows local — só funciona se aquele computador específico estiver ligado e logado no horário, o que não serve quando quem cuida da operação usa outra máquina. GitHub Actions (ou outro runner na nuvem) é a escolha certa pra qualquer automação que precisa rodar "sempre", independente de quem está com o notebook ligado.
 
-## Status (Fase 3 em andamento — primeira fatia completa)
+## Status (Fase 3 em andamento — 1ª e 2ª fatias completas)
 
 - [x] Fase 1: OAuth, multi-tenant, Banco Histórico completo (produtos, vendas, estoque, remessas), dashboard, cron + alerta por e-mail
 - [x] Fase 2: sincronização de visitas/performance, Motor Analítico (`lib/analytics.js`: médias ponderadas por janela, tendência, cobertura, risco, sugestão de envio, projeção de vendas), Planejador Inteligente de Envios no dashboard
 - [x] Histórico de 12 meses (vendas 100%, remessas parcial por quota), página de saúde do sistema, backup semanal automático (GitHub Actions)
 - [x] Proteção de acesso ao dashboard (contracapa `full2.nastripack.com.br` + sessão via cookie assinado)
 - [x] Fase 3 (1ª fatia): Motor de Regras (`lib/regras.js`), Central de Missões (`/missoes`), Índice de Saúde da Operação e Resumo Executivo no dashboard
-- [ ] Custo de transporte por remessa (RF-016) — mapeado (via export do relatório de Faturamento), ainda não implementado
-- [ ] Fase 3 (próxima fatia): Gastos com Transporte (12.10), Inteligência de Precificação completa (12.9), Aptos para o Full (12.8), Pesquisa Global de SKU (12.2)
+- [x] Fase 3 (2ª fatia): Gastos com Transporte (RF-016/12.10) — custo real de Coleta Full via API de Faturamento, 100% automático, sem upload
+- [ ] Fase 3 (próxima fatia): Inteligência de Precificação completa (12.9), Aptos para o Full (12.8), Pesquisa Global de SKU (12.2)
 - [ ] Filtro de status de pedido no sync (pedidos cancelados podem estar contando como venda) — identificado na auditoria da Fase 2
 - [ ] Risco do cron não escalar para múltiplas lojas — identificado na auditoria da Fase 2, ainda em aberto

@@ -122,6 +122,20 @@ CREATE TABLE IF NOT EXISTS missoes (
 CREATE INDEX IF NOT EXISTS idx_missoes_loja ON missoes(loja_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_missoes_aberta ON missoes(loja_id, produto_id, tipo) WHERE status = 'aberta';
 
+-- Custos de transporte por periodo (Fase 3, PRS 12.10), via API de Faturamento - agregado mensal,
+-- sem detalhamento por coleta individual (nao exposto pela API publica). Upsert, nao insert-only,
+-- porque o periodo corrente muda ate fechar.
+CREATE TABLE IF NOT EXISTS custos_transporte (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  loja_id TEXT NOT NULL,
+  periodo TEXT NOT NULL,
+  label TEXT NOT NULL,
+  valor REAL NOT NULL,
+  atualizado_em TEXT DEFAULT (datetime('now')),
+  UNIQUE(loja_id, periodo, label)
+);
+CREATE INDEX IF NOT EXISTS idx_custos_transporte_loja ON custos_transporte(loja_id);
+
 -- Suporte tecnico ao OAuth (nao faz parte do modelo de negocio do PRS)
 CREATE TABLE IF NOT EXISTS ml_auth (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

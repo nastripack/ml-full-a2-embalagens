@@ -121,6 +121,14 @@ export async function inserirPerformance(db, lojaId, produtoId, visits) {
   ).bind(lojaId, produtoId, visits?.total_visits ?? null).run();
 }
 
+export async function upsertCustoTransporte(db, lojaId, periodo, label, valor) {
+  await db.prepare(
+    `INSERT INTO custos_transporte (loja_id, periodo, label, valor)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(loja_id, periodo, label) DO UPDATE SET valor = excluded.valor, atualizado_em = datetime('now')`
+  ).bind(lojaId, periodo, label, valor).run();
+}
+
 export async function registrarEvento(db, lojaId, tipo, produtoId, payload, origem) {
   await db.prepare(
     "INSERT INTO eventos (loja_id, tipo, produto_id, payload_json, origem) VALUES (?, ?, ?, ?, ?)"

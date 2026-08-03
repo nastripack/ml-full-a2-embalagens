@@ -160,3 +160,15 @@ export async function getItemVisits(accessToken, itemId, fromDate, toDate) {
   const data = await apiGet(accessToken, `/items/visits?ids=${itemId}&date_from=${fromDate}&date_to=${toDate}`);
   return data[0] || null;
 }
+
+// Periodos de faturamento (grupo ML = Mercado Livre, nao Mercado Pago). Retorna so agregados
+// mensais - nao ha endpoint publico com detalhamento por coleta/transacao individual.
+export async function getBillingPeriods(accessToken) {
+  const data = await apiGet(accessToken, "/billing/integration/monthly/periods?group=ML&document_type=BILL");
+  return data.results || data || [];
+}
+
+// Resumo de cobrancas e bonificacoes de um periodo (agregado por tipo, nao por transacao).
+export async function getBillingSummary(accessToken, periodKey) {
+  return apiGet(accessToken, `/billing/integration/periods/key/${periodKey}/summary/details?group=ML&document_type=BILL`);
+}

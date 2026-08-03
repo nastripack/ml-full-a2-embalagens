@@ -168,6 +168,27 @@ async function renderLoja(env, lojaId, recemConectado) {
   }
   const totalMissoesAbertas = Object.values(contagemMissoes).reduce((a, b) => a + b, 0);
 
+  const LABEL_COLETA_FULL = "Custo do serviço de coleta Full";
+  const custosColeta = await db.prepare(
+    `SELECT periodo, valor FROM custos_transporte WHERE loja_id = ? AND label = ? ORDER BY periodo DESC LIMIT 2`
+  ).bind(lojaId, LABEL_COLETA_FULL).all();
+  const [custoMesAtual, custoMesAnterior] = custosColeta.results || [];
+  const variacaoColeta = custoMesAtual && custoMesAnterior && custoMesAnterior.valor > 0
+    ? (custoMesAtual.valor - custoMesAnterior.valor) / custoMesAnterior.valor
+    : null;
+
+  // Usa o mesmo periodo do custo exibido (pode nao ser o mes corrente - ex: agosto ainda sem
+  // cobranca de coleta lancada mostra julho), pra nao cruzar custo de um mes com envios de outro.
+  const unidadesEnviadasMes = custoMesAtual
+    ? await db.prepare(
+        `SELECT COALESCE(SUM(quantidade_enviada), 0) as total FROM envios
+         WHERE loja_id = ? AND strftime('%Y-%m', data) = ?`
+      ).bind(lojaId, custoMesAtual.periodo.slice(0, 7)).first()
+    : { total: 0 };
+  const custoMedioUnidade = custoMesAtual && unidadesEnviadasMes.total > 0
+    ? custoMesAtual.valor / unidadesEnviadasMes.total
+    : null;
+
   const linhasProdutos = (produtos.results || []).map(p => `
     <tr>
       <td>${escapeHtml(p.sku || "-")}</td>
@@ -216,6 +237,25 @@ async function renderLoja(env, lojaId, recemConectado) {
       ? "Nenhuma missão aberta no momento — operação sob controle."
       : `${totalMissoesAbertas} missão(ões) aberta(s): ${contagemMissoes.critico} crítica(s), ${contagemMissoes.alto} alta(s), ${contagemMissoes.medio} média(s), ${contagemMissoes.baixo} baixa(s).
          <a href="/missoes?loja=${encodeURIComponent(lojaId)}">Ver Central de Missões &rarr;</a>`}
+  </p>
+
+  <h2>Gastos com Transporte (Coleta Full)</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="label">Custo de coleta - ${custoMesAtual ? custoMesAtual.periodo.slice(0, 7) : "mês atual"}</div>
+      <div class="value">R$ ${custoMesAtual ? Number(custoMesAtual.valor).toFixed(2) : "0,00"}</div>
+    </div>
+    <div class="card">
+      <div class="label">Variação vs. mês anterior</div>
+      <div class="value" style="font-size:1.3rem">${variacaoColeta === null ? "-" : `${variacaoColeta > 0 ? "+" : ""}${(variacaoColeta * 100).toFixed(1)}%`}</div>
+    </div>
+    <div class="card">
+      <div class="label">Custo médio por unidade enviada</div>
+      <div class="value" style="font-size:1.3rem">${custoMedioUnidade === null ? "-" : `R$ ${custoMedioUnidade.toFixed(2)}`}</div>
+    </div>
+  </div>
+  <p style="font-size:0.85rem; color:#666; margin-top:-0.5rem">
+    Total mensal de "Custo do serviço de coleta Full" via API de Faturamento do Mercado Livre — não há detalhamento por remessa individual disponível via API.
   </p>
 
   <h2>Planejador Inteligente de Envios</h2>

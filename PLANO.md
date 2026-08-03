@@ -188,5 +188,23 @@ Implementado exatamente conforme desenhado na sessão de planejamento (reli as s
 
 **Deixado de propósito para a próxima fatia**: RB-005 (descontar ruptura recente da projeção) e alerta de custo logístico por unidade (dependem do RF-016, ainda não implementado); Gastos com Transporte (12.10); Inteligência de Precificação completa (12.9, além da regra de queda de valor líquido já implementada); Aptos para o Full (12.8, exigiria sincronizar itens fora do Full); Pesquisa Global de SKU (12.2); Simulação de envio.
 
+## Fase 3, segunda fatia — Gastos com Transporte via API de Faturamento (concluída)
+
+Pedido do usuário: dashboard com o custo real de transporte, especificamente a **Coleta Full** (quando a transportadora indicada pelo Mercado Livre busca o material na empresa). Perguntado se preferia upload periódico do `.xlsx` (detalhamento por coleta) ou 100% automático via API (só total mensal, sem detalhamento) — usuário escolheu **100% via API**, consistente com a preferência já expressa antes ("quero que seja algo 100% api possivel sem interferencia de subir tabela").
+
+**Implementado**:
+- `src/lib/mercadolivre.js`: `getBillingPeriods`/`getBillingSummary` (`/billing/integration/monthly/periods` e `.../periods/key/{KEY}/summary/details`, grupo `ML`).
+- `migrations/0006_custos_transporte.sql` + `schema.sql`: tabela `custos_transporte` (upsert por `loja_id+periodo+label`), grava todos os tipos de cobrança retornados, não só coleta.
+- `src/lib/db.js`: `upsertCustoTransporte`.
+- `src/routes/sync.js`: nova etapa busca os últimos 2 períodos de faturamento a cada sync.
+- `src/routes/dashboard.js`: seção "Gastos com Transporte (Coleta Full)" no dashboard individual.
+
+**Bugs reais encontrados e corrigidos durante a verificação em produção**:
+1. A API exige o parâmetro `document_type=BILL` em **ambos** os endpoints (`monthly/periods` e `summary/details`) — sem ele, retorna 422 `MISSING_PARAMETER_ERROR`. Não estava claro na documentação pública consultada antes de implementar; só foi descoberto pelo erro real devolvido pela API em produção (o classificador de permissões do Claude Code bloqueou testar isso ao vivo via shell com o token da loja — token de acesso é tratado como credencial sensível mesmo sendo gerado pelo próprio sistema — então a validação foi feita da forma já estabelecida no projeto: deploy real + inspeção do erro retornado).
+2. **Rótulo confirmado em produção**: `"Custo do serviço de coleta Full"` — bateu em centavos (R$ 139,50) com o total apurado manualmente na investigação anterior. O log de debug em `eventos` (`debug_billing_summary`) foi removido do código depois de confirmado, não ficou permanente.
+3. **Inconsistência de período**: o card "custo médio por unidade enviada" cruzava o custo do período mais recente disponível (que pode ser um mês passado, se o mês corrente ainda não tiver cobrança de coleta lançada) com as remessas do mês corrente real — misturando períodos diferentes. Corrigido para usar o mesmo período do custo exibido em ambos os lados da conta.
+
+**Limitação aceita pelo usuário**: só total agregado por mês, sem detalhamento por coleta individual (a API pública não expõe isso) — documentado na seção correspondente do `README.md`.
+
 ## Próxima fase (não iniciada)
-Continuação da Fase 3: upload/API do custo de Coleta Full (RF-016, ver achados da seção "Investigação: custo de transporte por remessa" acima) alimentando Gastos com Transporte (12.10) e completando Inteligência de Precificação (12.9). Também pendente da auditoria da Fase 2: filtro de status de pedido no sync (evitar contar cancelados como venda) e o risco do cron não escalar para múltiplas lojas.
+Continuação da Fase 3: Inteligência de Precificação completa (12.9, além da regra de queda de valor líquido já implementada), Aptos para o Full (12.8), Pesquisa Global de SKU (12.2). Também pendente da auditoria da Fase 2: filtro de status de pedido no sync (evitar contar cancelados como venda) e o risco do cron não escalar para múltiplas lojas.

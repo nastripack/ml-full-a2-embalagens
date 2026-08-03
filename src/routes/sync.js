@@ -1,8 +1,8 @@
 import {
   getValidAccessToken, getItemsMultiget, searchUserItems, getOrdersSearch,
-  getStockFulfillment, getInboundReceptions, getItemVisits
+  getStockFulfillment, getInboundReceptions, getItemVisits, getBillingPeriods, getBillingSummary
 } from "../lib/mercadolivre.js";
-import { upsertProduto, inserirVenda, inserirEstoque, inserirEnvio, inserirPerformance, registrarEvento } from "../lib/db.js";
+import { upsertProduto, inserirVenda, inserirEstoque, inserirEnvio, inserirPerformance, registrarEvento, upsertCustoTransporte } from "../lib/db.js";
 import { gerarMissoes } from "../lib/regras.js";
 
 // Janela curta e rapida para o sync de rotina (cron horario) - so precisa pegar o que e novo desde a
@@ -139,7 +139,32 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
 
   resumo.tempos_ms.performance = Date.now() - inicio;
 
-  // 5. Motor de Regras: interpreta os indicadores ja calculados e atualiza a Central de Missoes.
+  // 5. Gastos com Transporte (Fase 3, PRS 12.10): busca os ultimos periodos de faturamento e grava
+  // os totais por tipo de cobranca. A API publica so da agregado mensal, sem detalhamento por coleta
+  // individual - grava TODOS os tipos de cobranca retornados, o dashboard filtra pelo rotulo
+  // "Custo do serviço de coleta Full" (confirmado em producao, bate com o total apurado manualmente).
+  try {
+    const periodos = await getBillingPeriods(accessToken);
+    const recentes = (periodos || []).slice(0, 2);
+    for (const periodo of recentes) {
+      const key = periodo.key || periodo.id;
+      if (!key) continue;
+      const summary = await getBillingSummary(accessToken, key);
+
+      const charges = summary?.bill_includes?.charges || summary?.charges || [];
+      for (const charge of charges) {
+        const label = charge.label || charge.type;
+        const valor = Number(charge.amount ?? charge.value ?? 0);
+        if (!label || !valor) continue;
+        await upsertCustoTransporte(db, lojaId, String(key), label, valor);
+      }
+    }
+  } catch (err) {
+    resumo.erros.push(`faturamento: ${err.message}`);
+  }
+  resumo.tempos_ms.faturamento = Date.now() - inicio;
+
+  // 6. Motor de Regras: interpreta os indicadores ja calculados e atualiza a Central de Missoes.
   // Sem chamada de API externa, so leitura/escrita no D1 - custo de tempo desprezivel.
   try {
     resumo.missoes = await gerarMissoes(db, lojaId);
