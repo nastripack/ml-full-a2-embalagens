@@ -105,6 +105,7 @@ export async function getOrdersSearch(accessToken, sellerId, fromDate) {
     const params = new URLSearchParams({
       seller: sellerId,
       "order.date_created.from": fromDate,
+      "order.status": "paid",
       sort: "date_desc",
       limit: String(limit),
       offset: String(offset)
@@ -125,6 +126,7 @@ export async function getOrdersSearchPage(accessToken, sellerId, fromDate, offse
   const params = new URLSearchParams({
     seller: sellerId,
     "order.date_created.from": fromDate,
+    "order.status": "paid",
     sort: "date_desc",
     limit: String(limit),
     offset: String(offset)

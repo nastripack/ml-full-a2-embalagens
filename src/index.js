@@ -50,11 +50,14 @@ export default {
 
   async scheduled(event, env, ctx) {
     const lojas = await env.DB.prepare("SELECT loja_id FROM ml_auth").all();
-    for (const { loja_id } of lojas.results || []) {
-      try {
-        await runSyncForLoja(env, loja_id);
-      } catch (err) {
-        await enviarAlertaFalha(env, `sincronizacao automatica (loja ${loja_id})`, err);
+    const lista = lojas.results || [];
+    // Roda todas as lojas em paralelo (I/O-bound, esperando resposta da API do ML) em vez de
+    // sequencial - com varias lojas conectadas, sequencial somaria o tempo de cada uma e arriscaria
+    // estourar o teto de execucao do Worker, deixando as ultimas da lista sem sincronizar.
+    const resultados = await Promise.allSettled(lista.map(({ loja_id }) => runSyncForLoja(env, loja_id)));
+    for (let i = 0; i < resultados.length; i++) {
+      if (resultados[i].status === "rejected") {
+        await enviarAlertaFalha(env, `sincronizacao automatica (loja ${lista[i].loja_id})`, resultados[i].reason);
       }
     }
   }
