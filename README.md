@@ -169,4 +169,6 @@ Formatação de números/moeda/data também foi corrigida nesta etapa: `toFixed(
 - [x] Cron paralelo (multi-loja), filtro de pedidos pagos, Inteligência de Precificação completa (12.9), Aptos para o Full (12.8), Pesquisa Global de SKU (12.2)
 - [x] Formatação de números/moeda/data no padrão brasileiro em todas as telas
 - [x] Comissão de 20% (André Filho) — **descartada por decisão do usuário**: sem marco fixo de custo/preço de venda cadastrado em nenhum lugar, não dá pra calcular margem real (não é só falta de API, é falta de dado)
-- [ ] Risco do cron não escalar para múltiplas lojas — identificado na auditoria da Fase 2, ainda em aberto
+- [ ] Cron paralelo ainda não testado com mais de 1 loja de verdade (só a A2 Plásticos está conectada) — a correção foi feita preventivamente, mas falta validar na prática quando a 2ª loja entrar
+- [ ] RB-005 (descontar ruptura recente da projeção de vendas) e simulação de envio (12.2/12.4) — itens menores do PRS ainda não implementados
+- [ ] Backfill de remessas com cobertura parcial (quota da API) — pode ser re-executado depois pra capturar mais histórico, não é urgente
