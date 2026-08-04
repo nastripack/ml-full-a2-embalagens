@@ -175,7 +175,17 @@ export async function listarPlanejadorEnvios(db, lojaId) {
     });
   }
 
-  resultado.sort((a, b) => RANK_PRIORIDADE[a.prioridade] - RANK_PRIORIDADE[b.prioridade]);
+  // Desempate por cobertura dentro da mesma prioridade: entre dois itens igualmente criticos, quem
+  // tem menos dias de estoque rompe primeiro e precisa aparecer no topo. Sem isso a ordem entre eles
+  // era a da consulta ao banco, ou seja, arbitraria.
+  resultado.sort((a, b) => {
+    const porPrioridade = RANK_PRIORIDADE[a.prioridade] - RANK_PRIORIDADE[b.prioridade];
+    if (porPrioridade !== 0) return porPrioridade;
+    const coberturaA = a.cobertura === null || a.cobertura === undefined ? Infinity : a.cobertura;
+    const coberturaB = b.cobertura === null || b.cobertura === undefined ? Infinity : b.cobertura;
+    if (coberturaA === coberturaB) return 0; // evita Infinity - Infinity = NaN no comparador
+    return coberturaA - coberturaB;
+  });
   return resultado;
 }
 

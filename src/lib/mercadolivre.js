@@ -60,12 +60,34 @@ export async function getValidAccessToken(db, env, lojaId) {
   return refreshed.access_token;
 }
 
-async function apiGet(accessToken, path) {
+const MAX_TENTATIVAS = 3;
+const ESPERA_BASE_MS = 1000;
+const TETO_RETRY_AFTER_MS = 5000; // nao deixa a API pedir uma espera longa demais pro tempo de execucao do Worker
+
+function esperar(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// 429 (quota) e 5xx da API do Mercado Livre sao transitorios e vem em rajadas curtas - o endpoint de
+// remessas em especial devolve 429 direto. Sem retry, uma unica resposta dessas derrubava a chamada,
+// e no caso do searchUserItems derrubava a sincronizacao inteira daquela hora (ver PLANO.md).
+async function apiGet(accessToken, path, tentativa = 1) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Authorization": `Bearer ${accessToken}` }
   });
-  if (!res.ok) throw new Error(`Erro na API do Mercado Livre (${path}): ${res.status} ${await res.text()}`);
-  return res.json();
+  if (res.ok) return res.json();
+
+  const transitorio = res.status === 429 || res.status >= 500;
+  if (transitorio && tentativa < MAX_TENTATIVAS) {
+    const retryAfterS = Number(res.headers.get("Retry-After"));
+    const espera = Number.isFinite(retryAfterS) && retryAfterS > 0
+      ? Math.min(retryAfterS * 1000, TETO_RETRY_AFTER_MS)
+      : ESPERA_BASE_MS * 2 ** (tentativa - 1);
+    await esperar(espera);
+    return apiGet(accessToken, path, tentativa + 1);
+  }
+
+  throw new Error(`Erro na API do Mercado Livre (${path}): ${res.status} ${await res.text()}`);
 }
 
 export async function getUser(accessToken) {

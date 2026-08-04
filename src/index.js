@@ -9,8 +9,12 @@ import { handleAptosFull } from "./routes/aptos.js";
 import { handleLoginPage, handleLoginSubmit, handleLogout } from "./routes/login.js";
 import { verificarToken, lerCookie } from "./lib/sessao.js";
 import { enviarAlertaFalha } from "./lib/alertas.js";
+import { registrarEvento, contarFalhasConsecutivas } from "./lib/db.js";
 
 const HOST_LOGIN = "full2.nastripack.com.br";
+// O cron roda de hora em hora: 3 falhas seguidas significam ~3h sem sincronizar, ai sim e problema
+// de verdade e vale um e-mail. Falha isolada fica registrada em /saude, sem notificar.
+const FALHAS_ANTES_DE_ALERTAR = 3;
 
 export default {
   async fetch(request, env) {
@@ -60,8 +64,31 @@ export default {
     // estourar o teto de execucao do Worker, deixando as ultimas da lista sem sincronizar.
     const resultados = await Promise.allSettled(lista.map(({ loja_id }) => runSyncForLoja(env, loja_id)));
     for (let i = 0; i < resultados.length; i++) {
-      if (resultados[i].status === "rejected") {
-        await enviarAlertaFalha(env, `sincronizacao automatica (loja ${lista[i].loja_id})`, resultados[i].reason);
+      if (resultados[i].status !== "rejected") continue;
+      const lojaId = lista[i].loja_id;
+      const erro = resultados[i].reason;
+
+      // Registra a falha no banco antes de qualquer coisa: sem isso, uma sincronizacao que morre
+      // no meio nao deixa rastro nenhum e a pagina /saude continua mostrando a ultima rodada boa,
+      // como se estivesse tudo certo.
+      try {
+        await registrarEvento(env.DB, lojaId, "sincronizacao_falhou", null, { erro: erro?.message || String(erro) }, "worker_sync");
+      } catch { /* se o proprio D1 estiver fora, ainda tentamos alertar abaixo */ }
+
+      // So manda e-mail quando o problema persiste. A API do Mercado Livre devolve 429/5xx em
+      // rajadas curtas que se resolvem sozinhas na rodada seguinte - alertar a cada uma delas so
+      // gerava ruido diario na caixa de entrada e escondia a falha que importa.
+      let consecutivas = FALHAS_ANTES_DE_ALERTAR;
+      try {
+        consecutivas = await contarFalhasConsecutivas(env.DB, lojaId);
+      } catch { /* sem conseguir contar, mantem o comportamento de alertar */ }
+
+      if (consecutivas >= FALHAS_ANTES_DE_ALERTAR) {
+        await enviarAlertaFalha(
+          env,
+          `sincronizacao automatica (loja ${lojaId}) - ${consecutivas} falhas seguidas`,
+          erro
+        );
       }
     }
   }

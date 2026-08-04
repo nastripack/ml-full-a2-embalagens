@@ -227,5 +227,38 @@ Usuário pediu a lista de próximos passos após fechar a Fase 3 (núcleo + Gast
 
 Usuário decidiu **não implementar** essa parte: sem um marco fixo de referência de preço de custo/preço de venda cadastrado em lugar nenhum (nem no sistema, nem em ERP externo), não tem como calcular margem real de forma confiável — não é só falta de fonte automática, é falta de dado de verdade. "Capital necessário" em Aptos para o Full (12.8) permanece com a mesma limitação, documentada no README.
 
+## Auditoria completa do projeto (concluída)
+
+Pente-fino em todo o código depois de fechar as 5 ações. Dois achados reais:
+
+1. **Anúncios inativos entravam no Planejador**: `listarPlanejadorEnvios` considerava todos os 95 produtos Full, mas **51 não estavam ativos** (49 pausados + 2 fechados). Havia 2 missões de "armazenagem" abertas para anúncios **fechados** — recomendando ação sobre item que não pode mais ser vendido. Corrigido com `AND status = 'active'` na consulta; como Planejador, Motor de Regras e Índice de Saúde partem todos dessa função, os três foram corrigidos de uma vez. Verificado em produção: as 2 missões indevidas foram auto-resolvidas no sync seguinte.
+2. **Comparação de assinatura do cookie vazava por timing**: `verificarToken` (`src/lib/sessao.js`) comparava o HMAC com `!==`, que retorna no primeiro caractere diferente. Trocado por comparação em tempo constante.
+
+## Robustez da sincronização automática — investigação dos alertas diários (concluída)
+
+Usuário reportou estar recebendo vários e-mails "[ML Full A2] Falha na sincronizacao" por dia e pediu para arrumar a casa sem deixar ponta solta.
+
+**Método de investigação**: sem acesso ao D1 de produção a partir desta sessão (e com todas as rotas atrás do login da contracapa), a fonte de dado real foi o **dump semanal do D1 em `backups/backup-2026-08-03.sql`**, carregado num SQLite local. Isso permitiu rodar consultas de verdade sobre 2.127 eventos, e depois exercitar o código alterado contra os dados reais via um shim com a mesma interface do D1 (`prepare/bind/all/first/run`) sobre `node:sqlite`.
+
+**Achado central — a falha não deixava rastro**: procurando os erros gravados não se achava nada de `items/search`. O sinal estava nos **buracos** da sequência horária: em 9 horas de cron entre 31/07 e 03/08 não existe **nenhum** evento no banco. A última delas é **03/08 13:01 UTC = 10:01 BRT**, exatamente o horário do primeiro e-mail do print enviado pelo usuário. As falhas vêm em rajadas de horas consecutivas (3h, 5h, 1h) — padrão de throttling/instabilidade da API do ML, não de bug de dado. Nos syncs que completaram, 83 respostas HTTP 429 no endpoint de remessas e 1 em `/orders/search`.
+
+**Causa raiz, em três camadas:**
+1. `apiGet` (`src/lib/mercadolivre.js`) não tinha retry nenhum — um 429/5xx isolado derrubava a chamada.
+2. `searchUserItems` era a **única** chamada de API fora de `try/catch` no sync. Falhando ali, a exceção subia por `runSyncForLoja` antes do primeiro `registrarEvento`, então a rodada inteira morria **sem gravar nada** — invisível em `/saude`, que continuava mostrando a última rodada boa.
+3. `scheduled()` mandava e-mail a cada rejeição, sem distinguir instabilidade passageira de sistema quebrado.
+
+**Correções:**
+- Retry com backoff exponencial em `apiGet` (3 tentativas, 1s/2s), honrando `Retry-After` com teto de 5s. Só repete 429 e 5xx — 4xx real continua falhando na hora, para não mascarar erro de programação.
+- `searchUserItems` dentro de `try/catch`: a falha vira item de `resumo.erros` e o sync segue. As etapas seguintes não dependem dessa lista (os produtos já estão no banco), e a etapa de vendas já tinha fallback de busca do produto por MLB no D1.
+- Evento `sincronizacao_falhou` gravado no D1 quando o sync rejeita, e `/saude` passa a listar essas rodadas com a mensagem de erro (antes a consulta filtrava só `sincronizacao_concluida`).
+- E-mail só a partir de **3 falhas consecutivas** (`contarFalhasConsecutivas` lê a própria trilha de eventos, sem estado extra). Como o retry e o `try/catch` já eliminam a maior parte das rejeições, o alerta passa a significar sistema realmente quebrado (auth/D1), não instabilidade da API.
+- `LIMITE_EXECUCAO_MS` (120s): as etapas lentas param sozinhas antes dos ~180s em que a Cloudflare mata a execução — necessário porque o retry alonga a rodada.
+
+**Pontas soltas da auditoria da Fase 2 fechadas junto**: desempate por cobertura dentro da mesma prioridade no Planejador (a ordem entre itens igualmente críticos era arbitrária) e indicação de "mostrando X de Y" na tabela cortada em 20 itens.
+
+**Verificação**: harness com 11 asserções rodando o código real — ordenação do Planejador contra os dados de produção (44 produtos ativos com estoque, nenhum `NaN` no comparador com `Infinity`), contador de falhas consecutivas nos 5 cenários de borda, e o retry com `fetch` simulado (recuperação após 429; após 500+503; erro depois de 3 tentativas sem loop infinito; 403 sem retry; `Retry-After: 3600` limitado a 5s). Todas passaram. **Não foi feito deploy** — o efeito em produção só é observável depois de `wrangler deploy`.
+
+**Não corrigido de propósito**: `vendas.tarifa`, `vendas.frete` e `estoque_historico.em_transito` continuam sem preenchimento. Preencher exige inspecionar o payload real da API em produção primeiro — chutar nome de campo aqui só criaria dado errado silenciosamente.
+
 ## Próxima fase (não iniciada)
 Fase 3 do PRS está com o núcleo + as 5 ações completas. Itens menores ainda não abordados: RB-005 (desconto de ruptura recente na projeção) e simulação de envio (12.2/12.4, UI adicional).

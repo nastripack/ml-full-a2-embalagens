@@ -17,6 +17,7 @@ const ROTULO_TENDENCIA = {
 };
 
 const ROTULO_CONFIANCA = { alta: "Alta", media: "Média", baixa: "Baixa" };
+const LIMITE_PLANEJADOR = 20; // a tabela mostra so os mais urgentes; o total aparece abaixo dela
 
 export function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
@@ -298,7 +299,7 @@ async function renderLoja(env, lojaId, recemConectado) {
       <th>Projeção 7d</th><th>Projeção 15d</th><th>Projeção 30d</th><th>Projeção 60d</th>
       <th>Prioridade</th>
     </tr></thead>
-    <tbody>${itensAtencao.length ? itensAtencao.slice(0, 20).map(p => `
+    <tbody>${itensAtencao.length ? itensAtencao.slice(0, LIMITE_PLANEJADOR).map(p => `
       <tr>
         <td>${escapeHtml(p.nome)}</td>
         <td>${p.estoqueAtual}</td>
@@ -314,6 +315,9 @@ async function renderLoja(env, lojaId, recemConectado) {
         <td><span class="badge badge-${p.prioridade}">${ROTULO_PRIORIDADE[p.prioridade]}</span></td>
       </tr>`).join("") : '<tr><td colspan="12">Nenhum item precisando de atenção no momento.</td></tr>'}</tbody>
   </table></div>
+  ${itensAtencao.length > LIMITE_PLANEJADOR ? `<p style="font-size:0.85rem; color:#666; margin-top:-0.5rem">
+    Mostrando os ${LIMITE_PLANEJADOR} itens mais urgentes de ${formatarNumero(itensAtencao.length, 0)} que precisam de atenção.
+  </p>` : ""}
 
   <h2>Produtos sincronizados</h2>
   <div class="table-wrap"><table>
