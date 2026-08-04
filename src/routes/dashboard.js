@@ -34,19 +34,38 @@ export function formatarMoeda(n) {
   return `R$ ${formatarNumero(n)}`;
 }
 
-// Formato brasileiro de data: dia/mes/ano (opcionalmente com hora). So reformata a string
-// (YYYY-MM-DD... -> DD/MM/YYYY), sem conversao de fuso - o valor guardado nao muda, so a exibicao.
+// Brasil nao observa horario de verao desde 2019 - UTC-3 fixo o ano todo, sem tabela de regras.
+const OFFSET_BRASILIA_MS = -3 * 60 * 60 * 1000;
+
+// Formato brasileiro de data: dia/mes/ano (opcionalmente com hora). O banco (SQLite/D1) grava tudo
+// em UTC via datetime('now') - sem converter, a hora exibida ficava 3h a frente da hora real de
+// Brasilia, dando a impressao de sincronizacao no futuro. So desloca quando ha hora no valor (colunas
+// data_hora, timestamp completo); colunas so-data (envios.data, performance_historico.data, gravadas
+// com date('now')) nao tem componente de hora pra deslocar com seguranca, entao ficam como estao.
 export function formatarData(valor, comHora = false) {
   if (!valor) return "-";
   const str = String(valor);
+  const horaMatch = str.match(/(\d{2}):(\d{2})/);
+
+  if (comHora && horaMatch) {
+    const isoUtc = str.replace(" ", "T") + (str.endsWith("Z") ? "" : "Z");
+    const instante = new Date(isoUtc);
+    if (!isNaN(instante.getTime())) {
+      const local = new Date(instante.getTime() + OFFSET_BRASILIA_MS);
+      const dia = String(local.getUTCDate()).padStart(2, "0");
+      const mes = String(local.getUTCMonth() + 1).padStart(2, "0");
+      const ano = local.getUTCFullYear();
+      const hora = String(local.getUTCHours()).padStart(2, "0");
+      const minuto = String(local.getUTCMinutes()).padStart(2, "0");
+      return `${dia}/${mes}/${ano} ${hora}:${minuto}`;
+    }
+  }
+
   const dataMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!dataMatch) return str;
   const [, ano, mes, dia] = dataMatch;
   let resultado = `${dia}/${mes}/${ano}`;
-  if (comHora) {
-    const horaMatch = str.match(/(\d{2}):(\d{2})/);
-    if (horaMatch) resultado += ` ${horaMatch[1]}:${horaMatch[2]}`;
-  }
+  if (comHora && horaMatch) resultado += ` ${horaMatch[1]}:${horaMatch[2]}`;
   return resultado;
 }
 
