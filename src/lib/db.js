@@ -5,20 +5,29 @@ export async function upsertLoja(db, lojaId, nickname) {
   ).bind(lojaId, nickname).run();
 }
 
+// BRAND e GTIN (EAN) vem no array de atributos do item, nao em campos de topo nivel.
+function extrairAtributo(attributes, id) {
+  return attributes?.find(a => a.id === id)?.value_name || null;
+}
+
 export async function upsertProduto(db, lojaId, item) {
   const existente = await db.prepare("SELECT id FROM produtos WHERE loja_id = ? AND mlb = ?").bind(lojaId, item.id).first();
 
   const dims = parseDimensions(item.shipping?.dimensions);
+  const marca = extrairAtributo(item.attributes, "BRAND");
+  const ean = extrairAtributo(item.attributes, "GTIN");
 
   if (existente) {
     await db.prepare(
-      `UPDATE produtos SET sku = ?, nome = ?, categoria = ?, tipo_envio = ?, status = ?, inventory_id = ?,
+      `UPDATE produtos SET sku = ?, nome = ?, categoria = ?, marca = ?, ean = ?, tipo_envio = ?, status = ?, inventory_id = ?,
        peso_gramas = ?, altura_cm = ?, largura_cm = ?, comprimento_cm = ?, atualizado_em = datetime('now')
        WHERE loja_id = ? AND mlb = ?`
     ).bind(
       item.seller_custom_field || null,
       item.title,
       item.category_id || null,
+      marca,
+      ean,
       item.shipping?.logistic_type || null,
       item.status || null,
       item.inventory_id || null,
@@ -33,8 +42,8 @@ export async function upsertProduto(db, lojaId, item) {
   }
 
   const inserted = await db.prepare(
-    `INSERT INTO produtos (loja_id, sku, mlb, inventory_id, nome, categoria, tipo_envio, status, peso_gramas, altura_cm, largura_cm, comprimento_cm)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO produtos (loja_id, sku, mlb, inventory_id, nome, categoria, marca, ean, tipo_envio, status, peso_gramas, altura_cm, largura_cm, comprimento_cm)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     lojaId,
     item.seller_custom_field || null,
@@ -42,6 +51,8 @@ export async function upsertProduto(db, lojaId, item) {
     item.inventory_id || null,
     item.title,
     item.category_id || null,
+    marca,
+    ean,
     item.shipping?.logistic_type || null,
     item.status || null,
     dims.peso_gramas,
