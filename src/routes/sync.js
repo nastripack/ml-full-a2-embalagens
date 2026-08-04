@@ -19,7 +19,11 @@ const MAX_ITENS_PERFORMANCE_POR_EXECUCAO = 15; // /items/visits so aceita 1 item
 // projeto). Com o retry da camada de API, uma rajada de 429 pode alongar bastante a rodada, entao
 // as etapas lentas param sozinhas antes de chegar perto do limite - e melhor uma rodada incompleta
 // (o cron roda de novo em 1h) do que uma execucao morta que nao grava nada.
-const LIMITE_EXECUCAO_MS = 120000;
+// Calibrado sobre a medicao real de `tempos_ms` no D1: uma rodada normal termina entre 77s e 116s
+// (media 103s), chegando na etapa de faturamento por volta dos 95s. 130s deixa ~35s de folga para
+// os retries antes de comecar a cortar etapa, e no pior caso (ultima iteracao entrando no limite,
+// com retry cheio nas duas chamadas) a rodada ainda fecha por volta de 165s, abaixo do teto.
+const LIMITE_EXECUCAO_MS = 130000;
 
 function esperar(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

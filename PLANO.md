@@ -258,6 +258,10 @@ Usuário reportou estar recebendo vários e-mails "[ML Full A2] Falha na sincron
 
 **Verificação**: harness com 11 asserções rodando o código real — ordenação do Planejador contra os dados de produção (44 produtos ativos com estoque, nenhum `NaN` no comparador com `Infinity`), contador de falhas consecutivas nos 5 cenários de borda, e o retry com `fetch` simulado (recuperação após 429; após 500+503; erro depois de 3 tentativas sem loop infinito; 403 sem retry; `Retry-After: 3600` limitado a 5s). Todas passaram. **Não foi feito deploy** — o efeito em produção só é observável depois de `wrangler deploy`.
 
+**Verificação em produção (após o deploy)**: `/sync?loja=1055727709` voltou com **`erros: []`** — primeira rodada totalmente limpa, incluindo o endpoint de remessas que vinha acumulando 429. 95 SKUs, 21 vendas, 8 estoques, 15 performances, 35 situações ativas na Central de Missões (1 auto-resolvida).
+
+**Recalibração feita a partir dessa medição**: `LIMITE_EXECUCAO_MS` tinha sido posto em 120s com base numa leitura errada da duração de uma rodada — eu estimei ~62s medindo o intervalo entre os *timestamps* dos checkpoints, que começa a contar no primeiro checkpoint e não no início da rodada. O campo `tempos_ms`, que mede desde o início, mostra que uma rodada normal leva **entre 77s e 116s** (média 103s), chegando na etapa de faturamento por volta dos 95s. Com o teto em 120s, uma rajada de 429 com retry poderia cortar a etapa de faturamento sem necessidade. Ajustado para 130s, que deixa ~35s de folga para os retries e no pior caso fecha por volta de 165s, ainda abaixo dos ~180s da Cloudflare. A rodada pós-deploy levou 92,5s, abaixo da média anterior.
+
 **Não corrigido de propósito**: `vendas.tarifa`, `vendas.frete` e `estoque_historico.em_transito` continuam sem preenchimento. Preencher exige inspecionar o payload real da API em produção primeiro — chutar nome de campo aqui só criaria dado errado silenciosamente.
 
 ## Próxima fase (não iniciada)
