@@ -25,11 +25,13 @@ export async function handleSaude(request, env) {
     ultimaPorLoja[loja.loja_id] = evento;
   }
 
+  // Inclui as rodadas que falharam por completo, nao so as concluidas: uma sincronizacao que morre
+  // no meio e justamente a que precisa aparecer aqui.
   const recentes = await db.prepare(
-    `SELECT e.loja_id, l.nickname, e.data_hora, e.payload_json
+    `SELECT e.loja_id, l.nickname, e.data_hora, e.payload_json, e.tipo
      FROM eventos e
      LEFT JOIN lojas l ON l.loja_id = e.loja_id
-     WHERE e.tipo = 'sincronizacao_concluida'
+     WHERE e.tipo IN ('sincronizacao_concluida', 'sincronizacao_falhou')
      ORDER BY e.data_hora DESC
      LIMIT 30`
   ).all();
@@ -53,6 +55,16 @@ export async function handleSaude(request, env) {
   const linhasRecentes = (recentes.results || []).map(r => {
     let payload = {};
     try { payload = JSON.parse(r.payload_json); } catch { /* ignora payload malformado */ }
+
+    if (r.tipo === "sincronizacao_falhou") {
+      return `<tr>
+        <td>${escapeHtml(r.nickname || r.loja_id)}</td>
+        <td>${formatarData(r.data_hora, true)}</td>
+        <td colspan="6"><span class="badge badge-critico">falhou</span> ${escapeHtml(payload.erro || "erro nao registrado")}</td>
+        <td>-</td>
+      </tr>`;
+    }
+
     const duracaoS = payload.tempos_ms?.performance ? (payload.tempos_ms.performance / 1000).toFixed(1) : "-";
     const numErros = (payload.erros || []).length;
     return `<tr>
@@ -64,7 +76,7 @@ export async function handleSaude(request, env) {
       <td>${payload.estoque_atualizado ?? "-"}</td>
       <td>${payload.remessas_encontradas ?? "-"}</td>
       <td>${payload.performance_atualizada ?? "-"}</td>
-      <td>${numErros > 0 ? `<span class="badge badge-critico">${numErros}</span>` : "0"}</td>
+      <td>${numErros > 0 ? `<span class="badge badge-critico" title="${escapeHtml((payload.erros || []).join("\n"))}">${numErros}</span>` : "0"}</td>
     </tr>`;
   }).join("");
 

@@ -15,6 +15,15 @@ const MAX_PAGINAS_POR_EXECUCAO = 5; // 5 paginas x (1 search + 3 multiget) = ~20
 const MAX_ITENS_ESTOQUE_POR_EXECUCAO = 8; // limitado pelo quota proprio e mais restrito do endpoint de remessas
 const PAUSA_ENTRE_REMESSAS_MS = 1200;
 const MAX_ITENS_PERFORMANCE_POR_EXECUCAO = 15; // /items/visits so aceita 1 item por chamada
+// Teto de seguranca: a Cloudflare mata a execucao perto de 180s (erro 1101, ja observado neste
+// projeto). Com o retry da camada de API, uma rajada de 429 pode alongar bastante a rodada, entao
+// as etapas lentas param sozinhas antes de chegar perto do limite - e melhor uma rodada incompleta
+// (o cron roda de novo em 1h) do que uma execucao morta que nao grava nada.
+// Calibrado sobre a medicao real de `tempos_ms` no D1: uma rodada normal termina entre 77s e 116s
+// (media 103s), chegando na etapa de faturamento por volta dos 95s. 130s deixa ~35s de folga para
+// os retries antes de comecar a cortar etapa, e no pior caso (ultima iteracao entrando no limite,
+// com retry cheio nas duas chamadas) a rodada ainda fecha por volta de 165s, abaixo do teto.
+const LIMITE_EXECUCAO_MS = 130000;
 
 function esperar(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -33,7 +42,17 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   let produtoIdPorMlb = {};
   let totalDisponivel = 0;
   while (paginasProcessadas < MAX_PAGINAS_POR_EXECUCAO) {
-    const pagina = await searchUserItems(accessToken, lojaId, offset);
+    let pagina;
+    try {
+      pagina = await searchUserItems(accessToken, lojaId, offset);
+    } catch (err) {
+      // Esta era a unica chamada de API fora de try/catch: qualquer 429/5xx transitorio aqui
+      // derrubava a sincronizacao inteira daquela hora, sem gravar nada no banco (invisivel na
+      // pagina /saude) e disparando alerta por e-mail. As etapas seguintes nao dependem desta:
+      // os produtos ja estao no banco das rodadas anteriores.
+      resumo.erros.push(`produtos offset=${offset}: ${err.message}`);
+      break;
+    }
     totalDisponivel = pagina.paging?.total ?? 0;
     if (!pagina.results || pagina.results.length === 0) break;
 
@@ -101,6 +120,10 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
 
   let primeiro = true;
   for (const produto of produtosParaChecar.results || []) {
+    if (Date.now() - inicio > LIMITE_EXECUCAO_MS) {
+      resumo.erros.push("estoque/remessas: interrompido pelo teto de tempo de execucao");
+      break;
+    }
     try {
       const stock = await getStockFulfillment(accessToken, produto.inventory_id);
       await inserirEstoque(db, lojaId, produto.id, stock);
@@ -133,6 +156,10 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   ).bind(lojaId, MAX_ITENS_PERFORMANCE_POR_EXECUCAO).all();
 
   for (const produto of produtosParaVisitas.results || []) {
+    if (Date.now() - inicio > LIMITE_EXECUCAO_MS) {
+      resumo.erros.push("performance: interrompido pelo teto de tempo de execucao");
+      break;
+    }
     try {
       const visits = await getItemVisits(accessToken, produto.mlb, desdeData, ateData);
       await inserirPerformance(db, lojaId, produto.id, visits);
@@ -149,6 +176,7 @@ export async function runSyncForLoja(env, lojaId, offsetInicial = 0) {
   // individual - grava TODOS os tipos de cobranca retornados, o dashboard filtra pelo rotulo
   // "Custo do serviço de coleta Full" (confirmado em producao, bate com o total apurado manualmente).
   try {
+    if (Date.now() - inicio > LIMITE_EXECUCAO_MS) throw new Error("interrompido pelo teto de tempo de execucao");
     const periodos = await getBillingPeriods(accessToken);
     const recentes = (periodos || []).slice(0, 2);
     for (const periodo of recentes) {

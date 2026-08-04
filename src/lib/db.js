@@ -159,6 +159,25 @@ export async function upsertCustoTransporte(db, lojaId, periodo, label, valor) {
   ).bind(lojaId, periodo, label, valor).run();
 }
 
+// Conta quantas sincronizacoes seguidas falharam (da mais recente para tras) na trilha de eventos.
+// Serve para alertar por e-mail so quando o problema persiste, em vez de a cada instabilidade
+// transitoria da API do Mercado Livre - que e frequente e se resolve sozinha na rodada seguinte.
+export async function contarFalhasConsecutivas(db, lojaId) {
+  const linhas = await db.prepare(
+    `SELECT tipo FROM eventos
+     WHERE loja_id = ? AND tipo IN ('sincronizacao_concluida', 'sincronizacao_falhou')
+     ORDER BY data_hora DESC, id DESC
+     LIMIT 10`
+  ).bind(lojaId).all();
+
+  let consecutivas = 0;
+  for (const linha of linhas.results || []) {
+    if (linha.tipo !== "sincronizacao_falhou") break;
+    consecutivas++;
+  }
+  return consecutivas;
+}
+
 export async function registrarEvento(db, lojaId, tipo, produtoId, payload, origem) {
   await db.prepare(
     "INSERT INTO eventos (loja_id, tipo, produto_id, payload_json, origem) VALUES (?, ?, ?, ?, ?)"
