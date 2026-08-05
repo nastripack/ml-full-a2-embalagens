@@ -325,5 +325,30 @@ Pedido do usuário pra investigar se a API do Mercado Livre expõe a sugestão n
 
 **Conclusão**: RF-015 não é implementável via API pública hoje, para uma conta no modelo de Full doméstico. A única forma de comparação seria manual (usuário olhando as duas telas lado a lado). Marcado como bloqueado por limitação de API, não como pendência de implementação — se o Mercado Livre expuser esse dado no futuro, revisar aqui.
 
+## Painel de Comando — substitui o Dashboard Executivo (concluído)
+
+Pedido do usuário: nova página inicial, visualmente forte, pra facilitar tomada de decisão rápida — cor sempre carregando severidade (verde/amarelo/laranja/vermelho), atalhos, gráficos. Substitui `renderLoja` por completo; `renderOverview` (lista multi-loja) segue existindo sem redesenho, só pra quando houver 2+ lojas — hoje `/` redireciona automaticamente pra `/?loja=1055727709` já que só a A2 Plásticos está conectada.
+
+**Identidade visual**: usuário mandou print de outro projeto interno (dashboard de campanha de e-mail) pedindo pra seguir o mesmo padrão, e depois nomeou `cotacao.nastripack.com.br` como referência de fonte — fundo `#080B12`/`#0F1320`, azul `#2563EB`, fonte **Plus Jakarta Sans**, ícones em traço fino estilo Tabler desenhados à mão (sem puxar o pacote inteiro via CDN). Botões e atalhos são vazados (fundo transparente) com borda iluminada (glow via `box-shadow`) na cor de cada destino — ajuste pedido pelo usuário depois da primeira versão (que tinha fundo sólido).
+
+**Iterações de layout**: os 4 atalhos (Missões, Pesquisa, Aptos Full, Saúde) começaram no rodapé ("pit lane"), foram movidos pro cabeçalho, e por fim pra a mesma linha da busca — o cabeçalho ficou reservado só pra "Ver todas as lojas" / "Sincronizar agora", porque o usuário pretende adicionar botões de outras lojas ali no futuro.
+
+**5 cards de status** (severidade sempre verde→amarelo→laranja→vermelho, ordem de gravidade crescente):
+1. Sincronização — combina "há quanto tempo" com os erros da própria rodada (`statusSincronizacao`): uma sincronização recente ainda pode virar crítica se teve muitos erros parciais, o que antes só aparecia no `/saude`.
+2. Índice de Saúde da Operação
+3. Risco de Ruptura (críticos + altos do Planejador)
+4. Missões Abertas
+5. **Oportunidade Full** (card com paleta própria, azul, nunca usa cor de risco — é métrica positiva, mais candidato é bom, não ruim): candidatos fortes (score ≥ 60) pra migrar da venda fora do Full, usando `listarAptosParaFull` que já existia mas não tinha nenhum atalho com prévia numérica.
+
+**Descoberto perguntando "o que mais está faltando"**: dois achados novos, ambos pedidos pelo usuário pra incluir:
+- Receita não tinha comparação com o período anterior (Transporte já tinha) — adicionado badge "+X% vs. 30d anteriores".
+- Catálogo por status nunca aparecia em lugar nenhum — descoberto que **44 ativos vs. 49 pausados** (mais da metade parado), número que poderia passar despercebido. Virou painel próprio, largura total, números lado a lado.
+
+**Telemetria de Receita**: gráfico de linha SVG gerado no servidor (sem Chart.js nem nenhuma lib externa, consistente com o projeto não ter dependências de runtime além do wrangler) — preenche dias sem venda com 0 pra não pular no eixo X.
+
+**Simplificação deliberada**: a antiga tabela "Produtos sincronizados" (lista crua de produtos) saiu da home — não ajudava decisão nenhuma, só era um dump de dados. Continua acessível via `/pesquisa`.
+
+**Verificação**: sem browser headless disponível no ambiente do assistente; validado por (1) checagem sintática, (2) render real contra o backup de produção com checagem de `undefined`/`NaN`/tags balanceadas, (3) teste isolado de `statusSincronizacao` com 6 cenários (sync recente sem erro, sync recente com 17 erros → crítico mesmo recente, payload malformado, nunca sincronizou, etc.), (4) HTML real exportado e revisado visualmente pelo usuário no navegador em cada iteração antes do patch final.
+
 ## Próxima fase (não iniciada)
-Fase 3 do PRS está com o núcleo + as 5 ações + RB-005 + Simulação de Envio completos. Cron paralelo com 2ª loja real: usuário decidiu não conectar uma segunda conta por enquanto — tudo que depende de comparação/teste entre lojas fica pausado por essa razão, não é um bug pendente. RF-015 bloqueado por limitação da API (ver seção acima). RB-004 segue inativa até ~final de setembro/2026, comportamento esperado.
+Fase 3 do PRS está com o núcleo + as 5 ações + RB-005 + Simulação de Envio + Painel de Comando completos. Cron paralelo com 2ª loja real: usuário decidiu não conectar uma segunda conta por enquanto — tudo que depende de comparação/teste entre lojas fica pausado por essa razão, não é um bug pendente. RF-015 bloqueado por limitação da API (ver seção acima). RB-004 segue inativa até ~final de setembro/2026, comportamento esperado.

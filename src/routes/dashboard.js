@@ -1,4 +1,4 @@
-import { listarPlanejadorEnvios, calcularIndiceSaude } from "../lib/analytics.js";
+import { listarPlanejadorEnvios, calcularIndiceSaude, listarAptosParaFull } from "../lib/analytics.js";
 
 const ROTULO_PRIORIDADE = {
   critico: "Crítico",
@@ -8,15 +8,6 @@ const ROTULO_PRIORIDADE = {
   nao_enviar: "Não enviar"
 };
 
-const ROTULO_TENDENCIA = {
-  crescimento: "Crescimento",
-  estavel: "Estável",
-  desaceleracao: "Desaceleração",
-  volatil: "Volátil",
-  sem_dados: "Sem dados"
-};
-
-const ROTULO_CONFIANCA = { alta: "Alta", media: "Média", baixa: "Baixa" };
 const LIMITE_PLANEJADOR = 20; // a tabela mostra so os mais urgentes; o total aparece abaixo dela
 
 export function escapeHtml(str) {
@@ -186,6 +177,158 @@ async function renderOverview(env) {
   `);
 }
 
+// ---- Painel de Comando (substitui o Dashboard Executivo) ----
+// Segue a identidade visual ja usada nos outros projetos internos da Nastripack (nastripack-
+// comunicados etc.): fundo #080B12/#0F1320, azul #2563EB, fonte Plus Jakarta Sans (igual ao
+// cotacao.nastripack.com.br), icones estilo Tabler, botões vazados com borda iluminada.
+// (traco fino, sem preenchimento). Cor sempre carrega significado, nunca decoracao.
+const COR_STATUS = { ok: "#22c55e", atencao: "#eab308", alerta: "#f97316", critico: "#ef4444" };
+const ROTULO_STATUS = { ok: "OK", atencao: "ATENÇÃO", alerta: "ALERTA", critico: "CRÍTICO" };
+
+// Icones em traco fino (viewBox 24x24, stroke-based), no espirito do Tabler Icons ja usado nos
+// outros projetos - desenhados a mao aqui em vez de embutir o pacote inteiro via CDN.
+const ICONE_PATH = {
+  sync: '<path d="M4 4v5h5"/><path d="M20 20v-5h-5"/><path d="M4.6 15A8 8 0 0 0 20 12"/><path d="M19.4 9A8 8 0 0 0 4 12"/>',
+  pulso: '<path d="M3 12h4l2 7 4-15 2 8h6"/>',
+  alerta: '<path d="M11.1 3.9 2.4 19a1 1 0 0 0 .9 1.5h17.4a1 1 0 0 0 .9-1.5L12.9 3.9a1 1 0 0 0-1.8 0Z"/><path d="M12 9.5v4"/><circle cx="12" cy="16.7" r="0.9" fill="currentColor" stroke="none"/>',
+  alvo: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="0.8" fill="currentColor" stroke="none"/>',
+  caminhao: '<rect x="1.5" y="6.5" width="12.5" height="10" rx="1.2"/><path d="M14 10h4l3.5 3.3V16.5H14z"/><circle cx="6" cy="19" r="1.7"/><circle cx="17.5" cy="19" r="1.7"/>',
+  busca: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20 15 15"/>',
+  setaAlvo: '<path d="M17 7 7 17"/><path d="M8 7h9v9"/>',
+  engrenagem: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1Z"/>',
+  tendencia: '<path d="M3 17 9 11 13 15 21 6"/><path d="M15 6h6v6"/>',
+  caixa: '<path d="M3.5 8.2 12 4l8.5 4.2v7.6L12 20l-8.5-4.2z"/><path d="M3.5 8.2 12 12l8.5-3.8"/><path d="M12 12v8"/>'
+};
+function icone(nome) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONE_PATH[nome]}</svg>`;
+}
+
+const ORDEM_SEVERIDADE = ["ok", "atencao", "alerta", "critico"];
+function pior(nivelA, nivelB) {
+  return ORDEM_SEVERIDADE.indexOf(nivelA) >= ORDEM_SEVERIDADE.indexOf(nivelB) ? nivelA : nivelB;
+}
+
+// Combina o "ha quanto tempo" com os erros da propria rodada - uma sincronizacao recente (verde
+// pelo horario) ainda pode ter tido varios erros parciais, e isso ficava so visivel no /saude.
+function statusSincronizacao(ultimaSync) {
+  if (!ultimaSync) return { nivel: "critico", texto: "nunca sincronizou" };
+  const horas = (Date.now() - new Date(ultimaSync.data_hora.replace(" ", "T") + "Z").getTime()) / 3600000;
+  const textoHoras = horas < 1 ? `há ${Math.round(horas * 60)} min` : `há ${formatarNumero(horas, 1)}h`;
+
+  let nivelHoras;
+  if (horas <= 2) nivelHoras = "ok";
+  else if (horas <= 6) nivelHoras = "atencao";
+  else if (horas <= 24) nivelHoras = "alerta";
+  else nivelHoras = "critico";
+  const textoFinalHoras = horas > 24 ? `há ${Math.round(horas / 24)}d` : textoHoras;
+
+  let qtdErros = 0;
+  try {
+    qtdErros = (JSON.parse(ultimaSync.payload_json || "{}").erros || []).length;
+  } catch { /* payload malformado - trata como 0 erros, o horario ja cobre o essencial */ }
+
+  let nivelErros = "ok";
+  if (qtdErros > 15) nivelErros = "critico";
+  else if (qtdErros > 5) nivelErros = "alerta";
+  else if (qtdErros > 0) nivelErros = "atencao";
+
+  const nivel = pior(nivelHoras, nivelErros);
+  const texto = qtdErros > 0 ? `${textoFinalHoras} · ${qtdErros} erro(s)` : textoFinalHoras;
+  return { nivel, texto };
+}
+
+function statusIndiceSaude(indice) {
+  if (indice === null) return { nivel: "atencao", texto: "sem dado" };
+  if (indice >= 85) return { nivel: "ok", texto: "saudável" };
+  if (indice >= 70) return { nivel: "atencao", texto: "atenção" };
+  if (indice >= 50) return { nivel: "alerta", texto: "alerta" };
+  return { nivel: "critico", texto: "crítico" };
+}
+
+// Limiares pensados pro tamanho de catalogo tipico deste projeto (dezenas de produtos ativos) -
+// 1-2 criticos e' "alerta", 3+ e' "critico" (risco real de ruptura generalizada).
+function statusRuptura(criticos, altos) {
+  if (criticos === 0 && altos === 0) return { nivel: "ok" };
+  if (criticos === 0) return { nivel: "atencao" };
+  if (criticos <= 2) return { nivel: "alerta" };
+  return { nivel: "critico" };
+}
+
+function statusMissoes(contagem) {
+  if (contagem.critico > 0) return { nivel: "critico" };
+  if (contagem.alto > 0) return { nivel: "alerta" };
+  if (contagem.medio > 0 || contagem.baixo > 0) return { nivel: "atencao" };
+  return { nivel: "ok" };
+}
+
+// Preenche os N dias corridos com 0 onde nao houve venda - sem isso o grafico pularia dias sem dado.
+function preencherSerieDiaria(linhas, dias) {
+  const porDia = Object.fromEntries((linhas || []).map(l => [l.dia, l.total]));
+  const resultado = [];
+  for (let i = dias - 1; i >= 0; i--) {
+    const chave = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    resultado.push({ dia: chave, total: porDia[chave] || 0 });
+  }
+  return resultado;
+}
+
+function dataCurta(isoDia) {
+  const [, mes, dia] = isoDia.split("-");
+  return `${dia}/${mes}`;
+}
+
+// Grafico de linha em SVG puro, gerado no servidor - sem dependencia externa (CDN, biblioteca de
+// grafico) nem JS no cliente, consistente com o resto do projeto (package.json so tem wrangler).
+function graficoReceita(pontos) {
+  const LARGURA = 760, ALTURA = 190, PAD_X = 4, PAD_TOPO = 16, PAD_BASE = 26;
+  const max = Math.max(...pontos.map(p => p.total), 1);
+  const passoX = (LARGURA - PAD_X * 2) / Math.max(pontos.length - 1, 1);
+  const y = (v) => ALTURA - PAD_BASE - (v / max) * (ALTURA - PAD_TOPO - PAD_BASE);
+
+  const coords = pontos.map((p, i) => [PAD_X + i * passoX, y(p.total)]);
+  const linha = coords.map(([cx, cy], i) => `${i === 0 ? "M" : "L"}${cx.toFixed(1)},${cy.toFixed(1)}`).join(" ");
+  const area = `${linha} L${coords[coords.length - 1][0].toFixed(1)},${ALTURA - PAD_BASE} L${coords[0][0].toFixed(1)},${ALTURA - PAD_BASE} Z`;
+  const [ux, uy] = coords[coords.length - 1];
+
+  return `
+  <svg viewBox="0 0 ${LARGURA} ${ALTURA}" class="grafico-receita" preserveAspectRatio="none" role="img" aria-label="Receita liquida diaria, ultimos ${pontos.length} dias">
+    <line x1="${PAD_X}" y1="${ALTURA - PAD_BASE}" x2="${LARGURA - PAD_X}" y2="${ALTURA - PAD_BASE}" class="gr-eixo" />
+    <path d="${area}" class="gr-area" />
+    <path d="${linha}" class="gr-linha" fill="none" />
+    <circle cx="${ux.toFixed(1)}" cy="${uy.toFixed(1)}" r="4.5" class="gr-ponto" />
+    <text x="${PAD_X}" y="${ALTURA - 6}" class="gr-eixo-label">${dataCurta(pontos[0].dia)}</text>
+    <text x="${LARGURA - PAD_X}" y="${ALTURA - 6}" text-anchor="end" class="gr-eixo-label">${dataCurta(pontos[pontos.length - 1].dia)}</text>
+  </svg>`;
+}
+
+function statCard(nomeIcone, rotulo, valor, sub, nivel) {
+  return `
+  <div class="stat-card">
+    <div class="stat-topo">
+      <div class="stat-icone stat-icone-${nivel}">${icone(nomeIcone)}</div>
+      <span class="stat-badge stat-badge-${nivel}">${ROTULO_STATUS[nivel]}</span>
+    </div>
+    <div class="stat-valor">${valor}</div>
+    <div class="stat-label">${rotulo}</div>
+    <div class="stat-sub">${sub}</div>
+  </div>`;
+}
+
+// Card de Oportunidade Full: visualmente parecido com os de risco, mas com paleta propria
+// (azul, "OPORTUNIDADE") - nunca vermelho/verde, pra nao insinuar que mais oportunidade e' ruim.
+function opportunityCard(nomeIcone, rotulo, valor, sub) {
+  return `
+  <div class="stat-card stat-card-oportunidade">
+    <div class="stat-topo">
+      <div class="stat-icone stat-icone-oportunidade">${icone(nomeIcone)}</div>
+      <span class="stat-badge stat-badge-oportunidade">OPORTUNIDADE</span>
+    </div>
+    <div class="stat-valor">${valor}</div>
+    <div class="stat-label">${rotulo}</div>
+    <div class="stat-sub">${sub}</div>
+  </div>`;
+}
+
 async function renderLoja(env, lojaId, recemConectado) {
   const db = env.DB;
 
@@ -195,17 +338,37 @@ async function renderLoja(env, lojaId, recemConectado) {
     "SELECT COALESCE(SUM(valor_liquido), 0) as total, COUNT(*) as pedidos FROM vendas WHERE loja_id = ? AND data_hora >= datetime('now', '-30 days')"
   ).bind(lojaId).first();
 
-  const produtos = await db.prepare(
-    "SELECT id, sku, mlb, nome, status FROM produtos WHERE loja_id = ? ORDER BY atualizado_em DESC LIMIT 50"
+  const receitaAnterior = await db.prepare(
+    "SELECT COALESCE(SUM(valor_liquido), 0) as total FROM vendas WHERE loja_id = ? AND data_hora >= datetime('now', '-60 days') AND data_hora < datetime('now', '-30 days')"
+  ).bind(lojaId).first();
+  const variacaoReceita = receitaAnterior.total > 0 ? (totalVendido.total - receitaAnterior.total) / receitaAnterior.total : null;
+
+  const vendasDiariasRows = await db.prepare(
+    `SELECT date(data_hora) as dia, COALESCE(SUM(valor_liquido), 0) as total
+     FROM vendas WHERE loja_id = ? AND data_hora >= datetime('now', '-30 days')
+     GROUP BY dia ORDER BY dia`
   ).bind(lojaId).all();
+  const serieReceita = preencherSerieDiaria(vendasDiariasRows.results, 30);
+
+  // Catalogo por status - visibilidade simples de quanto do catalogo esta parado (pausado/fechado)
+  // vs ativo, informacao que hoje nao aparece em lugar nenhum do painel.
+  const produtosPorStatusRows = await db.prepare(
+    "SELECT status, COUNT(*) as total FROM produtos WHERE loja_id = ? GROUP BY status"
+  ).bind(lojaId).all();
+  const contagemStatus = { active: 0, paused: 0, closed: 0, outros: 0 };
+  for (const linha of produtosPorStatusRows.results || []) {
+    if (linha.status in contagemStatus) contagemStatus[linha.status] = linha.total;
+    else contagemStatus.outros += linha.total;
+  }
 
   const ultimaSync = await db.prepare(
-    "SELECT data_hora FROM eventos WHERE loja_id = ? AND tipo = 'sincronizacao_concluida' ORDER BY data_hora DESC LIMIT 1"
+    "SELECT data_hora, payload_json FROM eventos WHERE loja_id = ? AND tipo = 'sincronizacao_concluida' ORDER BY data_hora DESC LIMIT 1"
   ).bind(lojaId).first();
 
   const planejador = await listarPlanejadorEnvios(db, lojaId);
   const itensAtencao = planejador.filter(p => p.prioridade !== "nao_enviar" && p.prioridade !== "sem_dados");
-  const itensCriticos = planejador.filter(p => p.prioridade === "critico" || p.prioridade === "alto").length;
+  const itensCriticosCount = planejador.filter(p => p.prioridade === "critico").length;
+  const itensAltosCount = planejador.filter(p => p.prioridade === "alto").length;
   const indiceSaude = calcularIndiceSaude(planejador);
 
   const missoesPorPrioridade = await db.prepare(
@@ -217,6 +380,13 @@ async function renderLoja(env, lojaId, recemConectado) {
   }
   const totalMissoesAbertas = Object.values(contagemMissoes).reduce((a, b) => a + b, 0);
 
+  // Oportunidade Full: quantos anuncios fora do Full ja tem potencial forte comprovado (score >= 60,
+  // combinando regularidade + crescimento + estabilidade - ver listarAptosParaFull). E' metrica
+  // positiva (mais candidato = melhor), entao NAO usa o semaforo de risco dos outros cards.
+  const aptosFull = await listarAptosParaFull(db, lojaId);
+  const candidatosFortes = aptosFull.filter(a => a.score >= 60).length;
+  const melhorScore = aptosFull.length > 0 ? aptosFull[0].score : null;
+
   const LABEL_COLETA_FULL = "Custo do serviço de coleta Full";
   const custosColeta = await db.prepare(
     `SELECT periodo, valor FROM custos_transporte WHERE loja_id = ? AND label = ? ORDER BY periodo DESC LIMIT 2`
@@ -226,8 +396,6 @@ async function renderLoja(env, lojaId, recemConectado) {
     ? (custoMesAtual.valor - custoMesAnterior.valor) / custoMesAnterior.valor
     : null;
 
-  // Usa o mesmo periodo do custo exibido (pode nao ser o mes corrente - ex: agosto ainda sem
-  // cobranca de coleta lancada mostra julho), pra nao cruzar custo de um mes com envios de outro.
   const unidadesEnviadasMes = custoMesAtual
     ? await db.prepare(
         `SELECT COALESCE(SUM(quantidade_enviada), 0) as total FROM envios
@@ -238,122 +406,254 @@ async function renderLoja(env, lojaId, recemConectado) {
     ? custoMesAtual.valor / unidadesEnviadasMes.total
     : null;
 
-  const linhasProdutos = (produtos.results || []).map(p => `
-    <tr>
-      <td>${escapeHtml(p.sku || "-")}</td>
-      <td>${escapeHtml(p.mlb)}</td>
-      <td>${escapeHtml(p.nome)}</td>
-      <td>${escapeHtml(p.status || "-")}</td>
-    </tr>`).join("");
-
-  const banner = recemConectado
-    ? `<div class="banner">Conta vinculada com sucesso! Se ainda nao tiver dados abaixo, acesse <a href="/sync?loja=${encodeURIComponent(lojaId)}">/sync?loja=${escapeHtml(lojaId)}</a> para sincronizar pela primeira vez.</div>`
-    : "";
-
   const nomeLoja = loja?.nickname || lojaId;
 
-  return layout(`Dashboard - ${nomeLoja}`, `
-  <a class="voltar" href="/">&larr; Ver todas as lojas</a>
-  <a class="voltar" href="/missoes?loja=${encodeURIComponent(lojaId)}" style="margin-left:1rem">Central de Missões &rarr;</a>
-  <a class="voltar" href="/aptos-full?loja=${encodeURIComponent(lojaId)}" style="margin-left:1rem">Aptos para o Full &rarr;</a>
-  ${banner}
-  <h1>Dashboard Executivo - ${escapeHtml(nomeLoja)}</h1>
-  <form method="GET" action="/pesquisa" style="margin-bottom:1.5rem;">
-    <input type="hidden" name="loja" value="${escapeHtml(lojaId)}">
-    <input type="text" name="q" placeholder="Buscar por SKU, MLB ou nome..."
-      style="padding:0.6rem 0.9rem;border:1px solid #ccc;border-radius:6px;width:320px;font-size:0.95rem;">
-    <button type="submit" style="padding:0.6rem 1rem;border-radius:6px;border:none;background:#1a56db;color:white;cursor:pointer;">Buscar</button>
-  </form>
-  <div class="cards">
-    <div class="card">
-      <div class="label">Valor liquido vendido (30 dias)</div>
-      <div class="value">${formatarMoeda(totalVendido.total)}</div>
-    </div>
-    <div class="card">
-      <div class="label">Pedidos (30 dias)</div>
-      <div class="value">${totalVendido.pedidos}</div>
-    </div>
-    <div class="card">
-      <div class="label">Ultima sincronizacao</div>
-      <div class="value" style="font-size:1rem">${ultimaSync ? formatarData(ultimaSync.data_hora, true) : "nunca"}</div>
-    </div>
-    <div class="card">
-      <div class="label">Itens em risco de ruptura</div>
-      <div class="value">${itensCriticos}</div>
-    </div>
-    <div class="card">
-      <div class="label">Índice de saúde da operação</div>
-      <div class="value saude-score">${indiceSaude === null ? "-" : `${indiceSaude}%`}</div>
-    </div>
-  </div>
+  const sSync = statusSincronizacao(ultimaSync);
+  const sSaude = statusIndiceSaude(indiceSaude);
+  const sRuptura = statusRuptura(itensCriticosCount, itensAltosCount);
+  const sMissoes = statusMissoes(contagemMissoes);
 
-  <h2>Resumo executivo</h2>
-  <p>
-    ${totalMissoesAbertas === 0
-      ? "Nenhuma missão aberta no momento — operação sob controle."
-      : `${totalMissoesAbertas} missão(ões) aberta(s): ${contagemMissoes.critico} crítica(s), ${contagemMissoes.alto} alta(s), ${contagemMissoes.medio} média(s), ${contagemMissoes.baixo} baixa(s).
-         <a href="/missoes?loja=${encodeURIComponent(lojaId)}">Ver Central de Missões &rarr;</a>`}
-  </p>
+  const banner = recemConectado
+    ? `<div class="painel-banner">Conta vinculada com sucesso! Se ainda não tiver dados abaixo, acesse <a href="/sync?loja=${encodeURIComponent(lojaId)}">/sync?loja=${escapeHtml(lojaId)}</a> para sincronizar pela primeira vez.</div>`
+    : "";
 
-  <h2>Gastos com Transporte (Coleta Full)</h2>
-  <div class="cards">
-    <div class="card">
-      <div class="label">Custo de coleta - ${custoMesAtual ? custoMesAtual.periodo.slice(0, 7) : "mês atual"}</div>
-      <div class="value">${formatarMoeda(custoMesAtual ? custoMesAtual.valor : 0)}</div>
-    </div>
-    <div class="card">
-      <div class="label">Variação vs. mês anterior</div>
-      <div class="value" style="font-size:1.3rem">${variacaoColeta === null ? "-" : `${variacaoColeta > 0 ? "+" : ""}${formatarNumero(variacaoColeta * 100, 1)}%`}</div>
-    </div>
-    <div class="card">
-      <div class="label">Custo médio por unidade enviada</div>
-      <div class="value" style="font-size:1.3rem">${custoMedioUnidade === null ? "-" : formatarMoeda(custoMedioUnidade)}</div>
-    </div>
-  </div>
-  <p style="font-size:0.85rem; color:#666; margin-top:-0.5rem">
-    Total mensal de "Custo do serviço de coleta Full" via API de Faturamento do Mercado Livre — não há detalhamento por remessa individual disponível via API.
-  </p>
-
-  <h2>Planejador Inteligente de Envios</h2>
-  <div class="table-wrap"><table>
-    <thead><tr>
-      <th>Produto</th><th>Estoque Full</th><th>Média diária</th><th>Cobertura (dias)</th>
-      <th>Tendência</th><th>Confiança</th><th>Sugestão de envio</th>
-      <th>Projeção 7d</th><th>Projeção 15d</th><th>Projeção 30d</th><th>Projeção 60d</th>
-      <th>Prioridade</th>
-    </tr></thead>
-    <tbody>${itensAtencao.length ? itensAtencao.slice(0, LIMITE_PLANEJADOR).map(p => `
+  const linhasPlanejador = itensAtencao.length ? itensAtencao.slice(0, LIMITE_PLANEJADOR).map(p => `
       <tr>
         <td>${escapeHtml(p.nome)}</td>
         <td>${p.estoqueAtual}</td>
         <td>${formatarNumero(p.mediaDiaria)}</td>
         <td>${p.cobertura === Infinity ? "-" : Math.round(p.cobertura)}</td>
-        <td>${ROTULO_TENDENCIA[p.tendencia]}</td>
-        <td>${ROTULO_CONFIANCA[p.confianca]}</td>
         <td>${p.sugestaoEnvio}</td>
-        <td>${p.projecoes.d7}</td>
-        <td>${p.projecoes.d15}</td>
-        <td>${p.projecoes.d30}</td>
-        <td>${p.projecoes.d60}</td>
-        <td><span class="badge badge-${p.prioridade}">${ROTULO_PRIORIDADE[p.prioridade]}</span></td>
-      </tr>`).join("") : '<tr><td colspan="12">Nenhum item precisando de atenção no momento.</td></tr>'}</tbody>
-  </table></div>
-  ${itensAtencao.length > LIMITE_PLANEJADOR ? `<p style="font-size:0.85rem; color:#666; margin-top:-0.5rem">
-    Mostrando os ${LIMITE_PLANEJADOR} itens mais urgentes de ${formatarNumero(itensAtencao.length, 0)} que precisam de atenção.
-  </p>` : ""}
+        <td><span class="tag tag-${p.prioridade}">${ROTULO_PRIORIDADE[p.prioridade]}</span></td>
+      </tr>`).join("") : '<tr><td colspan="6" class="vazio">Nenhum item precisando de atenção agora — tudo dentro da cobertura-alvo.</td></tr>';
 
-  <h2>Produtos sincronizados</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>SKU</th><th>MLB</th><th>Nome</th><th>Status</th></tr></thead>
-    <tbody>${linhasProdutos || `<tr><td colspan="4">Nenhum produto sincronizado ainda. Acesse /sync?loja=${escapeHtml(lojaId)}.</td></tr>`}</tbody>
-  </table></div>
-  `);
+  return `<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel - ${escapeHtml(nomeLoja)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080B12; --painel: #0F1320; --painel-2: #131828; --borda: #1c2333; --borda-forte: #2a3348;
+    --texto: #E7ECF5; --texto-fraco: #8A93A6; --acento: #2563EB;
+    --ok: ${COR_STATUS.ok}; --atencao: ${COR_STATUS.atencao}; --alerta: ${COR_STATUS.alerta}; --critico: ${COR_STATUS.critico};
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--texto); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+  a { color: var(--acento); }
+  svg { width: 20px; height: 20px; }
+  .painel-wrap { max-width: 1180px; margin: 0 auto; padding: 1.75rem 1.5rem 3rem; }
+  .topo { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+  .marca { font-weight: 800; font-size: 0.95rem; letter-spacing: -0.01em; color: var(--texto); }
+  .marca span { color: var(--acento); }
+  .eyebrow { font-size: 0.72rem; letter-spacing: 0.12em; color: var(--texto-fraco); text-transform: uppercase; margin: 0.4rem 0 0.3rem; font-weight: 600; }
+  .topo h1 { margin: 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.01em; }
+  .topo-links { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+  .botao { text-decoration: none; font-size: 0.84rem; font-weight: 600; padding: 0.55rem 0.95rem; border-radius: 8px; }
+  .botao-fantasma { color: var(--texto-fraco); border: 1.5px solid var(--borda-forte); background: transparent; }
+  .botao-fantasma:hover { border-color: var(--texto); color: var(--texto); box-shadow: 0 0 14px rgba(231,236,245,0.15); }
+  .botao-primario { background: transparent; color: var(--acento); border: 1.5px solid var(--acento); box-shadow: 0 0 14px rgba(37,99,235,0.4), inset 0 0 10px rgba(37,99,235,0.06); }
+  .botao-primario:hover { box-shadow: 0 0 22px rgba(37,99,235,0.65), inset 0 0 12px rgba(37,99,235,0.12); background: rgba(37,99,235,0.06); }
+  .busca { display: flex; gap: 0.5rem; }
+  .busca input { flex: 1; max-width: 360px; background: var(--painel); border: 1px solid var(--borda-forte); color: var(--texto); padding: 0.6rem 0.9rem; border-radius: 8px; font-family: inherit; font-size: 0.92rem; }
+  .busca input::placeholder { color: var(--texto-fraco); }
+  .busca button { background: transparent; color: var(--texto); border: 1.5px solid var(--borda-forte); padding: 0.6rem 1.1rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .busca button:hover { border-color: var(--acento); color: var(--acento); box-shadow: 0 0 14px rgba(37,99,235,0.35); }
+  .busca button:hover { border-color: var(--acento); }
+  .painel-banner { background: rgba(34,197,94,0.1); border: 1px solid var(--ok); color: #a8f0c6; padding: 0.75rem 1rem; border-radius: 10px; margin-bottom: 1.5rem; font-size: 0.9rem; }
+
+  .luzes { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.9rem; margin-bottom: 1.5rem; }
+  .stat-card { background: var(--painel); border: 1px solid var(--borda); border-radius: 14px; padding: 1.3rem 1.4rem; }
+  .stat-card-oportunidade { border-color: rgba(37,99,235,0.35); }
+  .stat-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  .stat-icone { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+  .stat-icone-ok { background: rgba(34,197,94,0.14); color: var(--ok); }
+  .stat-icone-atencao { background: rgba(234,179,8,0.14); color: var(--atencao); }
+  .stat-icone-alerta { background: rgba(249,115,22,0.14); color: var(--alerta); }
+  .stat-icone-critico { background: rgba(239,68,68,0.14); color: var(--critico); }
+  .stat-icone-oportunidade { background: rgba(37,99,235,0.14); color: var(--acento); }
+  .stat-badge { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; padding: 0.22rem 0.6rem; border-radius: 999px; }
+  .stat-badge-ok { background: rgba(34,197,94,0.14); color: var(--ok); }
+  .stat-badge-atencao { background: rgba(234,179,8,0.14); color: var(--atencao); }
+  .stat-badge-alerta { background: rgba(249,115,22,0.14); color: var(--alerta); }
+  .stat-badge-critico { background: rgba(239,68,68,0.14); color: var(--critico); }
+  .stat-badge-oportunidade { background: rgba(37,99,235,0.14); color: var(--acento); }
+  .stat-valor { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.01em; }
+  .stat-label { font-size: 0.8rem; color: var(--texto-fraco); margin-top: 0.35rem; font-weight: 500; }
+  .stat-sub { font-size: 0.76rem; color: var(--texto-fraco); margin-top: 0.15rem; }
+
+  .grade-principal { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-bottom: 1rem; align-items: start; }
+  .painel-box { background: var(--painel); border: 1px solid var(--borda); border-radius: 14px; padding: 1.4rem 1.5rem; }
+  .catalogo-box { margin-bottom: 1.5rem; }
+  .catalogo-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
+  .catalogo-item { text-align: center; padding: 0.9rem 0.5rem; border-radius: 10px; background: var(--painel-2); }
+  .catalogo-valor { font-size: 1.7rem; font-weight: 800; }
+  .catalogo-label { font-size: 0.8rem; color: var(--texto-fraco); margin-top: 0.2rem; }
+  .painel-box h2 { font-size: 0.95rem; color: var(--texto); margin: 0 0 1rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+  .painel-box h2 svg { color: var(--acento); width: 18px; height: 18px; }
+  .receita-topo { display: flex; align-items: baseline; gap: 0.7rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
+  .receita-valor { font-size: 2rem; font-weight: 800; letter-spacing: -0.01em; }
+  .receita-badge { font-size: 0.8rem; font-weight: 700; padding: 0.22rem 0.65rem; border-radius: 999px; }
+  .receita-badge-alta { background: rgba(34,197,94,0.14); color: var(--ok); }
+  .receita-badge-baixa { background: rgba(239,68,68,0.14); color: var(--critico); }
+  .receita-meta { font-size: 0.82rem; color: var(--texto-fraco); width: 100%; }
+  .receita-meta b { color: var(--texto); font-weight: 700; }
+  .grafico-receita { width: 100%; height: auto; display: block; }
+  .gr-eixo { stroke: var(--borda-forte); stroke-width: 1; }
+  .gr-area { fill: rgba(37, 99, 235, 0.12); }
+  .gr-linha { stroke: var(--acento); stroke-width: 2.4; }
+  .gr-ponto { fill: var(--acento); }
+  .gr-eixo-label { fill: var(--texto-fraco); font-size: 10px; }
+
+  .transporte-linha { display: flex; justify-content: space-between; align-items: baseline; padding: 0.6rem 0; border-bottom: 1px solid var(--borda); }
+  .transporte-linha:last-child { border-bottom: none; }
+  .transporte-label { font-size: 0.82rem; color: var(--texto-fraco); }
+  .transporte-valor { font-weight: 700; }
+  .transporte-nota { font-size: 0.74rem; color: var(--texto-fraco); margin-top: 0.8rem; line-height: 1.4; }
+  .up { color: var(--critico); } .down { color: var(--ok); }
+
+  .tabela-box table { width: 100%; border-collapse: collapse; }
+  .tabela-box th { text-align: left; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--texto-fraco); padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--borda-forte); font-weight: 600; }
+  .tabela-box td { padding: 0.65rem 0.6rem; border-bottom: 1px solid var(--borda); font-size: 0.88rem; }
+  .tabela-box td.vazio { color: var(--texto-fraco); text-align: center; padding: 1.5rem; }
+  .tag { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.7rem; font-weight: 700; }
+  .tag-critico { background: rgba(239,68,68,0.14); color: var(--critico); }
+  .tag-alto { background: rgba(249,115,22,0.14); color: var(--alerta); }
+  .tag-medio { background: rgba(234,179,8,0.14); color: var(--atencao); }
+
+  .atalho { display: inline-flex; align-items: center; gap: 0.4rem; text-decoration: none; padding: 0.5rem 0.85rem; border-radius: 8px; border: 1.5px solid var(--atalho-cor); color: var(--atalho-cor); background: transparent; font-size: 0.82rem; font-weight: 600; box-shadow: 0 0 10px color-mix(in srgb, var(--atalho-cor) 25%, transparent); transition: box-shadow 0.12s ease, transform 0.12s ease; }
+  .atalho svg { width: 16px; height: 16px; }
+  .atalho:hover { transform: translateY(-1px); box-shadow: 0 0 18px color-mix(in srgb, var(--atalho-cor) 50%, transparent); }
+  .atalho-missoes { --atalho-cor: var(--alerta); }
+  .atalho-pesquisa { --atalho-cor: var(--acento); }
+  .atalho-aptos { --atalho-cor: var(--ok); }
+  .atalho-saude { --atalho-cor: #a78bfa; }
+  .busca-linha { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 1.75rem; }
+  .atalhos-linha { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+  @media (max-width: 860px) {
+    .luzes { grid-template-columns: repeat(2, 1fr); }
+    .grade-principal { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="painel-wrap">
+  <div class="topo">
+    <div>
+      <p class="marca">Nastripack<span>.</span></p>
+      <p class="eyebrow">Painel · Mercado Livre Full</p>
+      <h1>${escapeHtml(nomeLoja)}</h1>
+    </div>
+    <div class="topo-links">
+      <a class="botao botao-fantasma" href="/">Ver todas as lojas</a>
+      <a class="botao botao-primario" href="/sync?loja=${encodeURIComponent(lojaId)}">Sincronizar agora</a>
+    </div>
+  </div>
+
+  ${banner}
+
+  <div class="busca-linha">
+    <form class="busca" method="GET" action="/pesquisa">
+      <input type="hidden" name="loja" value="${escapeHtml(lojaId)}">
+      <input type="text" name="q" placeholder="Buscar por SKU, MLB ou nome...">
+      <button type="submit">Buscar</button>
+    </form>
+    <div class="atalhos-linha">
+      <a class="atalho atalho-missoes" href="/missoes?loja=${encodeURIComponent(lojaId)}">${icone("alvo")} Missões</a>
+      <a class="atalho atalho-pesquisa" href="/pesquisa?loja=${encodeURIComponent(lojaId)}">${icone("busca")} Pesquisa</a>
+      <a class="atalho atalho-aptos" href="/aptos-full?loja=${encodeURIComponent(lojaId)}">${icone("setaAlvo")} Aptos Full</a>
+      <a class="atalho atalho-saude" href="/saude">${icone("engrenagem")} Saúde</a>
+    </div>
+  </div>
+
+  <div class="luzes">
+    ${statCard("sync", "Sincronização", ROTULO_STATUS[sSync.nivel], sSync.texto, sSync.nivel)}
+    ${statCard("pulso", "Índice de Saúde", indiceSaude === null ? "-" : `${indiceSaude}%`, sSaude.texto, sSaude.nivel)}
+    ${statCard("alerta", "Risco de Ruptura", `${itensCriticosCount + itensAltosCount}`, `${itensCriticosCount} crítico(s) · ${itensAltosCount} alto(s)`, sRuptura.nivel)}
+    ${statCard("alvo", "Missões Abertas", `${totalMissoesAbertas}`, totalMissoesAbertas === 0 ? "operação sob controle" : `${contagemMissoes.critico} crítica(s) · ${contagemMissoes.alto} alta(s)`, sMissoes.nivel)}
+    ${opportunityCard("tendencia", "Oportunidade Full", `${candidatosFortes}`, melhorScore === null ? "nenhum candidato ainda" : `${aptosFull.length} candidato(s) · melhor score ${melhorScore}`)}
+  </div>
+
+  <div class="grade-principal">
+    <div class="painel-box">
+      <h2>${icone("tendencia")} Receita — últimos 30 dias</h2>
+      <div class="receita-topo">
+        <div class="receita-valor">${formatarMoeda(totalVendido.total)}</div>
+        ${variacaoReceita !== null ? `<span class="receita-badge ${variacaoReceita >= 0 ? "receita-badge-alta" : "receita-badge-baixa"}">${variacaoReceita >= 0 ? "+" : ""}${formatarNumero(variacaoReceita * 100, 1)}% vs. 30d anteriores</span>` : ""}
+        <div class="receita-meta">${totalVendido.pedidos} pedido(s) · ticket médio <b>${formatarMoeda(totalVendido.pedidos > 0 ? totalVendido.total / totalVendido.pedidos : 0)}</b></div>
+      </div>
+      ${graficoReceita(serieReceita)}
+    </div>
+    <div class="painel-box">
+      <h2>${icone("caminhao")} Transporte</h2>
+      <div class="transporte-linha">
+        <span class="transporte-label">Coleta Full — ${custoMesAtual ? custoMesAtual.periodo.slice(0, 7) : "mês atual"}</span>
+        <span class="transporte-valor">${formatarMoeda(custoMesAtual ? custoMesAtual.valor : 0)}</span>
+      </div>
+      <div class="transporte-linha">
+        <span class="transporte-label">Variação vs. mês anterior</span>
+        <span class="transporte-valor ${variacaoColeta > 0 ? "up" : variacaoColeta < 0 ? "down" : ""}">${variacaoColeta === null ? "-" : `${variacaoColeta > 0 ? "+" : ""}${formatarNumero(variacaoColeta * 100, 1)}%`}</span>
+      </div>
+      <div class="transporte-linha">
+        <span class="transporte-label">Custo médio / unidade</span>
+        <span class="transporte-valor">${custoMedioUnidade === null ? "-" : formatarMoeda(custoMedioUnidade)}</span>
+      </div>
+      <p class="transporte-nota">Total mensal via API de Faturamento do Mercado Livre — sem detalhamento por remessa individual disponível.</p>
+    </div>
+  </div>
+
+  <div class="painel-box catalogo-box">
+    <h2>${icone("caixa")} Catálogo</h2>
+    <div class="catalogo-grade">
+      <div class="catalogo-item">
+        <div class="catalogo-valor">${contagemStatus.active}</div>
+        <div class="catalogo-label">Ativos</div>
+      </div>
+      <div class="catalogo-item">
+        <div class="catalogo-valor">${contagemStatus.paused}</div>
+        <div class="catalogo-label">Pausados</div>
+      </div>
+      <div class="catalogo-item">
+        <div class="catalogo-valor">${contagemStatus.closed}</div>
+        <div class="catalogo-label">Fechados</div>
+      </div>
+      ${contagemStatus.outros > 0 ? `<div class="catalogo-item"><div class="catalogo-valor">${contagemStatus.outros}</div><div class="catalogo-label">Outros status</div></div>` : ""}
+    </div>
+  </div>
+
+  <div class="painel-box tabela-box">
+    <h2>Planejador — itens que precisam de decisão agora</h2>
+    <table>
+      <thead><tr><th>Produto</th><th>Estoque</th><th>Média/dia</th><th>Cobertura</th><th>Sugestão</th><th>Prioridade</th></tr></thead>
+      <tbody>${linhasPlanejador}</tbody>
+    </table>
+    ${itensAtencao.length > LIMITE_PLANEJADOR ? `<p class="transporte-nota">Mostrando os ${LIMITE_PLANEJADOR} mais urgentes de ${itensAtencao.length}. <a href="/missoes?loja=${encodeURIComponent(lojaId)}">Ver todos na Central de Missões</a>.</p>` : ""}
+  </div>
+
+</div>
+</body>
+</html>`;
 }
 
 export async function handleDashboard(request, env) {
   const url = new URL(request.url);
-  const lojaId = url.searchParams.get("loja");
+  let lojaId = url.searchParams.get("loja");
   const recemConectado = url.searchParams.get("recem_conectado") === "1";
+
+  // Com uma unica loja ativa, pula a tela de "escolha a loja" e vai direto pro painel - hoje so
+  // a A2 Plasticos esta conectada, entao "/" sempre deveria abrir o painel de comando direto.
+  if (!lojaId) {
+    const lojasAtivas = await env.DB.prepare("SELECT loja_id FROM lojas WHERE ativo = 1").all();
+    const lista = lojasAtivas.results || [];
+    if (lista.length === 1) {
+      return Response.redirect(`${url.origin}/?loja=${encodeURIComponent(lista[0].loja_id)}`, 302);
+    }
+  }
 
   const html = lojaId ? await renderLoja(env, lojaId, recemConectado) : await renderOverview(env);
 

@@ -28,7 +28,7 @@ src/
     login.js           /login - contracapa de acesso ao site (e-mail+senha, separado do OAuth acima)
     sync.js            /sync - sincronizacao de rotina (rapida, janela curta, chamada pelo cron)
     backfill.js         /backfill-vendas, /backfill-remessas - historico profundo, manual, resumivel
-    dashboard.js       /  - dashboard (visao geral, por loja, Planejador de Envios, resumo executivo, busca)
+    dashboard.js       /  - Painel de Comando (visao geral por loja, estilo semaforo de status, Planejador de Envios, busca) — substituiu o Dashboard Executivo antigo, ver PLANO.md
     missoes.js          /missoes - Central de Missoes (Fase 3): lista, marca executada/ignorada
     pesquisa.js          /pesquisa - Pesquisa Global de SKU: busca por SKU/MLB/nome, painel completo
     aptos.js             /aptos-full - Aptos para o Full: anuncios fora do Full com potencial de migracao
