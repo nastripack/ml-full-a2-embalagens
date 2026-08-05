@@ -65,7 +65,11 @@ export async function handleSaude(request, env) {
       </tr>`;
     }
 
-    const duracaoS = payload.tempos_ms?.performance ? (payload.tempos_ms.performance / 1000).toFixed(1) : "-";
+    // Usa o ultimo checkpoint (missoes, gravado apos as 6 etapas do sync) para refletir a duracao
+    // total - usar so ate a etapa de performance (checkpoint intermediario) subestimava a duracao
+    // real em ~15-20%, porque as etapas de faturamento e motor de regras rodam depois e nao entravam
+    // na conta (achado real, confirmado contra dados de producao: diferenca de 9-13s por rodada).
+    const duracaoS = payload.tempos_ms?.missoes ? (payload.tempos_ms.missoes / 1000).toFixed(1) : "-";
     const numErros = (payload.erros || []).length;
     return `<tr>
       <td>${escapeHtml(r.nickname || r.loja_id)}</td>

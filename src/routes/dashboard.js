@@ -104,6 +104,10 @@ export function layout(titulo, corpo) {
   .missao .acoes button { font-size: 0.8rem; padding: 0.3rem 0.7rem; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; margin-right: 0.5rem; }
   .missao .acoes button:hover { background: #eee; }
   .saude-score { font-size: 2rem; font-weight: 700; }
+  .simulacao { background: white; border-radius: 8px; padding: 1rem 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .sim-inputs { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .sim-inputs label { display: flex; flex-direction: column; font-size: 0.85rem; color: #444; gap: 0.3rem; }
+  .sim-inputs input { padding: 0.5rem 0.7rem; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95rem; width: 160px; }
 </style>
 </head>
 <body>

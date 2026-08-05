@@ -19,9 +19,16 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # ml_auth guarda access_token/refresh_token do OAuth do Mercado Livre em texto plano - nunca
+        # deve ir para o dump exportado (que fica versionado no git). E' suporte tecnico da
+        # autenticacao, nao faz parte do historico de negocio que o backup existe para preservar; se
+        # o dump for restaurado, a loja so precisa refazer /auth/login para reconectar.
         run: |
           DATA=$(date +%Y-%m-%d)
-          npx wrangler d1 export ml-full-a2-embalagens-db --remote --output="backups/backup-${DATA}.sql"
+          npx wrangler d1 export ml-full-a2-embalagens-db --remote --output="backups/backup-${DATA}.sql" \
+            --table=lojas --table=produtos --table=estoque_historico --table=vendas \
+            --table=envios --table=performance_historico --table=eventos --table=missoes \
+            --table=custos_transporte --table=vendas_fora_full
 
       - name: Manter so os 8 backups mais recentes
         run: |

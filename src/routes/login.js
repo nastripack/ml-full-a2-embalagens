@@ -1,4 +1,4 @@
-import { criarToken, cookieDeSessao, cookieDeLogout } from "../lib/sessao.js";
+import { criarToken, cookieDeSessao, cookieDeLogout, compararEmTempoConstante } from "../lib/sessao.js";
 
 const DOMINIO_COOKIE = ".nastripack.com.br";
 const HOST_DASHBOARD = "full.nastripack.com.br";
@@ -53,7 +53,9 @@ export async function handleLoginSubmit(request, env) {
   const senha = String(form.get("senha") || "");
   const redirect = String(form.get("redirect") || "");
 
-  if (email !== env.LOGIN_EMAIL || senha !== env.LOGIN_SENHA) {
+  const emailOk = compararEmTempoConstante(email, String(env.LOGIN_EMAIL || ""));
+  const senhaOk = compararEmTempoConstante(senha, String(env.LOGIN_SENHA || ""));
+  if (!emailOk || !senhaOk) {
     return new Response(paginaLogin("E-mail ou senha incorretos.", redirect), {
       status: 401,
       headers: { "Content-Type": "text/html; charset=utf-8" }

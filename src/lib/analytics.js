@@ -9,13 +9,69 @@ function somaJanela(linhasDiaAtras, min, max) {
     .reduce((soma, l) => soma + l.qtd, 0);
 }
 
+// RB-005: reconstroi, por dia (0 = hoje, numDias-1 = mais antigo), se o produto estava em ruptura
+// (estoque_full <= 0) naquele dia, usando carry-forward sobre as leituras esparsas do
+// estoque_historico (round-robin, nao ha uma leitura por dia por produto). Um dia so entra no
+// conjunto de ruptura se houver EVIDENCIA (uma leitura conhecida <= 0 cobrindo aquele dia); dias
+// antes da primeira leitura conhecida ficam de fora (assumidos disponiveis) - e melhor nao contar
+// ruptura sem prova do que inflar a demanda estimada por engano.
+export function diasEmRuptura(estoqueRows, numDias) {
+  const eventos = [...estoqueRows]
+    .filter(e => e.estoque_full !== null && e.estoque_full !== undefined)
+    .sort((a, b) => b.dias_atras - a.dias_atras); // mais antigo primeiro
+
+  const ruptura = new Set();
+  let atual = null;
+  let idx = 0;
+  for (let dia = numDias - 1; dia >= 0; dia--) {
+    while (idx < eventos.length && eventos[idx].dias_atras >= dia) {
+      atual = eventos[idx].estoque_full;
+      idx++;
+    }
+    if (atual !== null && atual <= 0) ruptura.add(dia);
+  }
+  return ruptura;
+}
+
 // Pesos da secao 8.2 do PRS: 7d=40%, 15d=30%, 30d=20%, 31-60d=10%.
-export function mediaDiariaPonderada(linhasDiaAtras) {
-  const media7 = somaJanela(linhasDiaAtras, 0, 7) / 7;
-  const media15 = somaJanela(linhasDiaAtras, 0, 15) / 15;
-  const media30 = somaJanela(linhasDiaAtras, 0, 30) / 30;
-  const media31a60 = somaJanela(linhasDiaAtras, 30, 60) / 30;
-  return 0.4 * media7 + 0.3 * media15 + 0.2 * media30 + 0.1 * media31a60;
+// RB-005: cada media e' calculada dividindo as vendas da janela pelos dias com estoque disponivel
+// nela (nao pelos dias corridos) - assim um produto que ficou em ruptura parte da janela nao tem a
+// demanda subestimada so porque nao havia o que vender. Se uma janela nao tem NENHUM dia com estoque
+// disponivel (ruptura total), ela fica sem dado confiavel e o peso dela e' redistribuido
+// proporcionalmente entre as janelas que tem dado - nunca substituida por um numero de outro periodo
+// (que pode ter um padrao de demanda diferente) nem zerada (o que anularia o proposito da regra).
+export function mediaDiariaPonderada(linhasDiaAtras, estoqueRows = []) {
+  const ruptura = diasEmRuptura(estoqueRows, 60);
+
+  function diasDisponiveis(min, max) {
+    let count = 0;
+    for (let d = min; d < max; d++) if (!ruptura.has(d)) count++;
+    return count;
+  }
+
+  function media(min, max) {
+    const dispon = diasDisponiveis(min, max);
+    if (dispon === 0) return null; // janela inteira em ruptura - sem dado confiavel
+    return somaJanela(linhasDiaAtras, min, max) / dispon;
+  }
+
+  const janelas = [
+    { peso: 0.4, valor: media(0, 7) },
+    { peso: 0.3, valor: media(0, 15) },
+    { peso: 0.2, valor: media(0, 30) },
+    { peso: 0.1, valor: media(30, 60) }
+  ];
+
+  let pesoTotal = 0;
+  let soma = 0;
+  for (const j of janelas) {
+    if (j.valor !== null) {
+      pesoTotal += j.peso;
+      soma += j.peso * j.valor;
+    }
+  }
+  if (pesoTotal === 0) return 0; // nenhuma janela com dia disponivel - sem base pra estimar
+  return soma / pesoTotal;
 }
 
 // Agrupa em semanas (0-6, 7-13, ..., 49-55 dias atras) para suavizar o "zero-inflation"
@@ -145,13 +201,28 @@ export async function listarPlanejadorEnvios(db, lojaId) {
     estoquePorProduto[linha.produto_id] = linha.estoque_full;
   }
 
+  // RB-005: historico de leituras de estoque nos ultimos 60 dias (nao so a ultima) - usado por
+  // mediaDiariaPonderada para descontar dias em ruptura do calculo de demanda.
+  const historicoEstoqueRows = await db.prepare(
+    `SELECT produto_id, CAST(julianday('now') - julianday(data_hora) AS INTEGER) as dias_atras, estoque_full
+     FROM estoque_historico
+     WHERE loja_id = ? AND data_hora >= datetime('now', '-60 days')`
+  ).bind(lojaId).all();
+
+  const historicoEstoquePorProduto = {};
+  for (const linha of historicoEstoqueRows.results || []) {
+    if (!historicoEstoquePorProduto[linha.produto_id]) historicoEstoquePorProduto[linha.produto_id] = [];
+    historicoEstoquePorProduto[linha.produto_id].push(linha);
+  }
+
   const resultado = [];
   for (const produto of produtos.results || []) {
     const linhas = vendasPorProduto[produto.id] || [];
     const estoqueAtual = estoquePorProduto[produto.id];
     if (estoqueAtual === undefined) continue; // estoque ainda nao sincronizado pra esse produto
 
-    const mediaDiaria = mediaDiariaPonderada(linhas);
+    const historicoEstoque = historicoEstoquePorProduto[produto.id] || [];
+    const mediaDiaria = mediaDiariaPonderada(linhas, historicoEstoque);
     const cobertura = coberturaEmDias(estoqueAtual, mediaDiaria);
     const prioridade = classificarPrioridade(cobertura);
 

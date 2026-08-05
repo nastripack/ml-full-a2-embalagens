@@ -3655,15 +3655,6 @@ INSERT INTO "eventos" ("id","tipo","data_hora","produto_id","payload_json","orig
 INSERT INTO "eventos" ("id","tipo","data_hora","produto_id","payload_json","origem","loja_id") VALUES(2155,'sync_checkpoint_produtos','2026-07-31 17:01:51',NULL,'{"ms":52143}','worker_sync','1055727709');
 INSERT INTO "eventos" ("id","tipo","data_hora","produto_id","payload_json","origem","loja_id") VALUES(2156,'sync_checkpoint_vendas','2026-07-31 17:02:15',NULL,'{"ms":75800}','worker_sync','1055727709');
 INSERT INTO "eventos" ("id","tipo","data_hora","produto_id","payload_json","origem","loja_id") VALUES(2157,'sincronizacao_concluida','2026-07-31 17:02:38',NULL,'{"skus_atualizados":95,"vendas_analisadas":15,"estoque_atualizado":8,"remessas_encontradas":0,"performance_atualizada":15,"erros":[],"tempos_ms":{"produtos":52143,"vendas":75800,"estoque_remessas":90780,"performance":98746}}','worker_sync','1055727709');
-CREATE TABLE ml_auth (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  loja_id TEXT NOT NULL UNIQUE,
-  access_token TEXT NOT NULL,
-  refresh_token TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  atualizado_em TEXT DEFAULT (datetime('now'))
-);
-INSERT INTO "ml_auth" ("id","loja_id","access_token","refresh_token","expires_at","atualizado_em") VALUES(1,'1055727709','APP_USR-426032379212172-073110-38236d3491303714bb495d28179d81b5-1055727709','TG-6a6caa9c8d66cc0001fc049f-1055727709','2026-07-31T20:01:00.617Z','2026-07-31 14:01:00');
 CREATE TABLE lojas (
   loja_id TEXT PRIMARY KEY,
   nickname TEXT,
@@ -3672,7 +3663,6 @@ CREATE TABLE lojas (
 );
 INSERT INTO "lojas" ("loja_id","nickname","ativo","criado_em") VALUES('1055727709','A2 PLASTICOS',1,'2026-07-30 14:49:21');
 DELETE FROM sqlite_sequence;
-INSERT INTO "sqlite_sequence" ("name","seq") VALUES('ml_auth',1);
 INSERT INTO "sqlite_sequence" ("name","seq") VALUES('produtos',345);
 INSERT INTO "sqlite_sequence" ("name","seq") VALUES('eventos',2157);
 INSERT INTO "sqlite_sequence" ("name","seq") VALUES('vendas',2623);

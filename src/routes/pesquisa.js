@@ -118,12 +118,75 @@ export async function handlePesquisa(request, env) {
     <p style="font-size:0.9rem; color:#555;">Projeção de vendas: 7d = ${indicador.projecoes.d7} · 15d = ${indicador.projecoes.d15} · 30d = ${indicador.projecoes.d30} · 60d = ${indicador.projecoes.d60}</p>
   ` : "<p>Estoque ainda não sincronizado para este produto.</p>";
 
+  // Simulacao de Envio (PRS 12.2 + UC-003): usuario ajusta a quantidade sugerida e o sistema
+  // recalcula cobertura/prioridade na hora, no cliente (sem round-trip ao servidor - os dois
+  // numeros que essa conta precisa, estoqueAtual e mediaDiaria, ja estao no HTML). Formulas
+  // espelham coberturaEmDias/classificarPrioridade de src/lib/analytics.js; se os limiares (7/15/30
+  // dias) mudarem la, precisam mudar aqui tambem. Capital em R$ so aparece se o usuario informar um
+  // custo unitario manualmente - nao ha custo de produto cadastrado em nenhum lugar do sistema (mesma
+  // lacuna ja documentada em Aptos para o Full), e o campo aqui e' so pra essa simulacao pontual,
+  // nunca gravado no banco.
+  const simulacaoEnvio = indicador ? `
+    <div class="simulacao">
+      <div class="sim-inputs">
+        <label>Quantidade a enviar
+          <input type="number" id="sim-qtd" value="${indicador.sugestaoEnvio}" min="0" step="1">
+        </label>
+        <label>Custo unitário (R$, opcional)
+          <input type="number" id="sim-custo" placeholder="ex: 4.50" min="0" step="0.01">
+        </label>
+      </div>
+      <div class="cards" style="margin-top:1rem;">
+        <div class="card"><div class="label">Nova cobertura (dias)</div><div class="value" id="sim-cobertura">-</div></div>
+        <div class="card"><div class="label">Nova prioridade</div><div class="value" id="sim-prioridade">-</div></div>
+        <div class="card"><div class="label">Capital necessário</div><div class="value" id="sim-capital" style="font-size:1.2rem">-</div></div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var estoqueAtual = ${JSON.stringify(indicador.estoqueAtual)};
+        var mediaDiaria = ${JSON.stringify(indicador.mediaDiaria)};
+        var ROTULOS = ${JSON.stringify(ROTULO_PRIORIDADE)};
+
+        function classificarPrioridade(cobertura) {
+          if (cobertura === Infinity) return "nao_enviar";
+          if (cobertura < 7) return "critico";
+          if (cobertura < 15) return "alto";
+          if (cobertura < 30) return "medio";
+          return "nao_enviar";
+        }
+
+        function recalcular() {
+          var qtd = Number(document.getElementById("sim-qtd").value) || 0;
+          var custo = Number(document.getElementById("sim-custo").value) || 0;
+          var novoEstoque = estoqueAtual + qtd;
+          var novaCobertura = mediaDiaria > 0 ? novoEstoque / mediaDiaria : Infinity;
+          var novaPrioridade = classificarPrioridade(novaCobertura);
+
+          document.getElementById("sim-cobertura").textContent = novaCobertura === Infinity ? "-" : Math.round(novaCobertura);
+          var elPrio = document.getElementById("sim-prioridade");
+          elPrio.innerHTML = '<span class="badge badge-' + novaPrioridade + '">' + (ROTULOS[novaPrioridade] || novaPrioridade) + '</span>';
+
+          var capitalEl = document.getElementById("sim-capital");
+          capitalEl.textContent = custo > 0 ? "R$ " + (qtd * custo).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+        }
+
+        document.getElementById("sim-qtd").addEventListener("input", recalcular);
+        document.getElementById("sim-custo").addEventListener("input", recalcular);
+        recalcular();
+      })();
+    </script>
+  ` : "";
+
   return responder(`${cabecalho(lojaId, nomeLoja, q)}
   <h2>${escapeHtml(produto.nome)}</h2>
   <p style="color:#666;">SKU: ${escapeHtml(produto.sku || "-")} · MLB: ${escapeHtml(produto.mlb)} · Categoria: ${escapeHtml(produto.categoria || "-")} · Status: ${escapeHtml(produto.status || "-")}</p>
 
   <h3>Indicador de saúde do item</h3>
   ${painelIndicadores}
+
+  <h3>Simulação de envio</h3>
+  ${simulacaoEnvio || "<p>Estoque ainda não sincronizado para este produto.</p>"}
 
   <h3>Estoque Full atual</h3>
   <p>${estoque ? `${estoque.estoque_full ?? "-"} unidades (atualizado em ${formatarData(estoque.data_hora, true)})` : "Sem dado de estoque sincronizado."}</p>

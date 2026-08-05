@@ -264,5 +264,66 @@ Usuário reportou estar recebendo vários e-mails "[ML Full A2] Falha na sincron
 
 **Não corrigido de propósito**: `vendas.tarifa`, `vendas.frete` e `estoque_historico.em_transito` continuam sem preenchimento. Preencher exige inspecionar o payload real da API em produção primeiro — chutar nome de campo aqui só criaria dado errado silenciosamente.
 
+## RB-005 — desconto de ruptura recente na projeção (concluído)
+
+Pedido do usuário para atacar essa pendência. Discussão prévia sobre dois pontos de design, decididos com a recomendação do assistente (usuário pediu "o que você recomenda" / "o que for a melhor decisão"):
+
+1. **Janela sem nenhum dia com estoque disponível**: em vez de usar 0 (zeraria o propósito da regra) ou emprestar a média de outro período (pode ter padrão de demanda diferente), o peso dessa janela é **redistribuído proporcionalmente** entre as janelas que têm dado confiável. Se todas as janelas (7/15/30/31-60d) estiverem sem dado, a média cai pra 0 — mesmo comportamento já existente pra produto sem histórico.
+2. **On-the-fly vs pré-calculado**: decidido **on-the-fly**, sem migração nem tabela nova — consistente com o princípio já documentado no topo de `analytics.js` ("Motor Analítico só lê do D1"), e o volume (dezenas de produtos, dezenas de leituras de estoque cada) não justifica o custo de manter dado derivado sincronizado.
+
+**Implementação** (`src/lib/analytics.js`):
+
+- Nova função `diasEmRuptura(estoqueRows, numDias)`: reconstrói, dia a dia, se o produto estava com `estoque_full <= 0`, usando carry-forward sobre as leituras esparsas do round-robin de `estoque_historico` (não há uma leitura por dia por produto). Um dia só entra como "ruptura" se houver uma leitura conhecida cobrindo ele — dias antes da primeira leitura ficam de fora (assumidos disponíveis), pra nunca inflar a demanda estimada sem evidência real.
+- `mediaDiariaPonderada` passou a receber um segundo parâmetro opcional (`estoqueRows`, default `[]` — compatível com a chamada antiga) e agora divide as vendas de cada janela pelos **dias com estoque disponível** nela, não pelos dias corridos.
+- `listarPlanejadorEnvios` passou a buscar o histórico de 60 dias de `estoque_historico` por produto (antes só buscava a última leitura) e repassa pra `mediaDiariaPonderada`.
+
+**Verificação**: script ad hoc com 4 cenários (sem ruptura → resultado idêntico à fórmula antiga; ruptura parcial de 3 dias → média subiu de 0,82 para 1,23/dia, refletindo a demanda real; ruptura total na janela de 7d → peso redistribuído sem quebrar; produto zerado há 60+ dias sem venda nenhuma → continua 0). Todos os cenários bateram com o esperado. **Não foi feito deploy** — o assistente não tem acesso de escrita ao repositório nem à conta Cloudflare desta vez; entregou o arquivo `analytics.js` atualizado e um patch (`rb005-desconto-ruptura.patch`) pro usuário aplicar e testar localmente antes de `wrangler deploy`.
+
+`classificarTendencia`, `sugerirQuantidadeEnvio` e `coberturaEmDias` não foram alterados — continuam recebendo a `mediaDiaria` já corrigida como parâmetro, então o benefício se propaga automaticamente pro Planejador, Motor de Regras e Índice de Saúde.
+
+## Incidente: token OAuth exposto durante repositório público temporário (corrigido)
+
+Repositório foi tornado público temporariamente (pedido do usuário, para permitir leitura externa do `PLANO.md`). Durante uma varredura geral do projeto pedida pelo usuário, encontrado que os dumps de backup semanal (`backups/*.sql`, gerados pelo GitHub Actions) incluíam a tabela `ml_auth` com `access_token`/`refresh_token` do Mercado Livre **em texto plano** — ou seja, enquanto o repositório esteve público, essas credenciais ficaram publicamente acessíveis.
+
+**Decisão do usuário**: não revogar o token / trocar o Client Secret agora (aceita o risco residual da janela de exposição). Repositório voltou a ser privado. Seguiu-se com a correção de causa raiz.
+
+**Correção aplicada**:
+- `.github/workflows/backup-semanal.yml`: o passo `wrangler d1 export` passou a listar explicitamente as tabelas incluídas (`--table=<nome>` repetido), **excluindo `ml_auth`** — ela é suporte técnico do OAuth, não faz parte do histórico de negócio que o backup existe para preservar. Se um dump for restaurado no futuro, a loja só precisa refazer `/auth/login` para reconectar.
+- Os dois backups já commitados (`backup-2026-07-31.sql`, `backup-2026-08-03.sql`) tiveram a tabela `ml_auth` (schema + dados + entrada em `sqlite_sequence`) removida manualmente. Validado que os dois arquivos continuam importáveis normalmente sem ela (script de teste local via `node:sqlite`).
+
+**Limitação conhecida**: isso limpa o estado atual dos arquivos, mas o token continua recuperável via histórico do git (commits antigos) para quem tiver acesso ao repositório — um purge de histórico (`git filter-repo` ou equivalente, com force-push) resolveria isso por completo, mas é uma operação mais invasiva, deixada para o usuário decidir separadamente.
+
+## Achados adicionais da varredura geral (pendentes de decisão)
+
+Pedido do usuário para escanear o projeto inteiro em busca de pontas soltas. Além do incidente acima, revisão de todos os arquivos em `src/` encontrou:
+
+1. **Bug real em `/saude` (corrigido)**: a coluna "Duração" (`src/routes/saude.js`) usava `payload.tempos_ms?.performance` como duração total da sincronização, mas esse é só o checkpoint até a etapa 4 (performance) — as etapas 5 (faturamento) e 6 (motor de regras) rodam depois e não entravam na conta. Confirmado contra dados reais de produção (`backups/backup-2026-08-03.sql`): a duração exibida ficava ~9-13s menor que a duração real, uma subestimação de ~15-20% (ex: mostrava 66,1s quando a rodada levou 76,6s de verdade). Corrigido para usar `tempos_ms.missoes` (último checkpoint, gravado depois das 6 etapas) — validado contra as mesmas 5 rodadas reais, valores agora batem com a faixa de 77-116s já documentada.
+2. **Comparação de e-mail/senha do login sem tempo constante (corrigido)** (`src/routes/login.js`, `handleLoginSubmit`): usava `!==` direto, mesma classe de vulnerabilidade (timing attack) já corrigida para a assinatura do cookie de sessão. `compararEmTempoConstante` (`sessao.js`) foi exportada e reaproveitada aqui para email e senha.
+3. **RB-004 (precificação) continua inativa na prática**: a janela "31-60 dias atrás" da comparação de queda de valor líquido cai inteiramente antes de 01/08/2026 (corte da correção do bug de comissão) até aproximadamente final de setembro/2026 — já era um comportamento esperado e documentado, só confirmado de novo nesta varredura, sem ação nova necessária.
+4. **`getValidAccessToken` sem proteção contra corrida em refresh concorrente (corrigido)** (`src/lib/mercadolivre.js`): se duas sincronizações da mesma loja rodassem ao mesmo tempo (ex: cron + `/sync` manual sobrepostos) com o token expirado, ambas tentavam renovar simultaneamente — como o refresh token do Mercado Livre é de uso único, a segunda falhava. Corrigido: se o refresh falhar, a função agora reconsulta o banco (até 3 tentativas, com pausa de 300ms entre elas) antes de desistir — se outra chamada concorrente já renovou com sucesso nesse meio tempo, usa o token dela em vez de propagar um erro evitável. **Testado** com um cenário sintético de corrida real (duas chamadas `Promise.all` disputando o mesmo `refresh_token`, mock de `fetch` simulando o comportamento de uso único do Mercado Livre): sem a correção, uma das duas chamadas falhava; com ela, as duas retornam o token novo. Também testados os casos que não podem quebrar: token ainda válido (nenhuma chamada de API), refresh normal sem corrida, e falha real (refresh_token de fato inválido) continua propagando o erro normalmente.
+
+## Simulação de Envio (PRS 12.2 + UC-003, concluída)
+
+Pedido do usuário pra entender o que essa pendência significava — o PRS original (`PRS_SRS_Mercado_Livre_Full_v1.docx`, enviado pelo usuário nesta sessão) não tinha um requisito numerado dedicado, só uma menção em 12.2 (lista de blocos do painel de SKU) e o fluxo completo em **UC-003 "Planejar envio"**: usuário ajusta a quantidade sugerida e o sistema recalcula risco, cobertura e capital na hora.
+
+**Decisões, com recomendação do assistente ("o que você recomenda")**:
+1. **Capital em R$**: campo de custo unitário opcional, preenchido pelo usuário só pra essa simulação pontual, nunca gravado no banco — evita reabrir a discussão já fechada sobre não ter fonte confiável de custo pra todo o sistema (mesma lacuna da comissão de 20% descartada e do "Aptos para o Full"). Se o campo ficar em branco, capital simplesmente não aparece.
+2. **RF-015** (comparar sugestão da IA com a sugestão nativa do Mercado Livre pro Full, achado ao ler o PRS completo mas não pedido pelo usuário) — deixado de fora dessa rodada: ainda não confirmado se a API do Mercado Livre expõe essa sugestão nativa em algum endpoint, precisa de investigação própria antes de comprometer a implementação.
+
+**Implementação** (`src/routes/pesquisa.js`): nova seção no painel de SKU, com JavaScript vanilla no cliente (sem round-trip ao servidor — os dois números necessários, `estoqueAtual` e `mediaDiaria`, já estão disponíveis no HTML renderizado). As fórmulas espelham `coberturaEmDias`/`classificarPrioridade` de `analytics.js` (limiares 7/15/30 dias) — comentário no código avisa que precisam ser mantidas em sincronia se os limiares mudarem lá. CSS adicionado em `dashboard.js` (`layout()`, reaproveitado por `pesquisa.js`).
+
+**Verificação**: lógica de recálculo (cobertura/prioridade) comparada numericamente contra as funções reais de `analytics.js` para os mesmos valores de entrada — resultados idênticos. Página renderizada de ponta a ponta contra o produto de teste da RB-005 (`MLB3907642399`): o campo de quantidade já vem preenchido com a sugestão corrigida (41, não mais o 9 antigo que só existia na missão desatualizada). HTML convertido para imagem (LibreOffice, que não executa JS) só para conferir estrutura/layout — os valores calculados em si foram validados separadamente, fora do navegador.
+
+## RF-015 — investigado, bloqueado por limitação da API (não implementável agora)
+
+Pedido do usuário pra investigar se a API do Mercado Livre expõe a sugestão nativa de envio ao Full, pra viabilizar o RF-015 (comparar a recomendação da IA com a sugestão do Mercado Livre).
+
+**Achados**:
+- A documentação oficial de Fulfillment do Mercado Livre afirma explicitamente: *"Through the APIs you can only consult the fulfillment stock and operations performed"* — a API pública só expõe estoque atual e operações/movimentações (exatamente os dois endpoints já usados no projeto: `/inventories/{id}/stock/fulfillment` e `/stock/fulfillment/operations/search`). Nenhuma recomendação é exposta.
+- A "Sugestão de estoque" citada no PRS existe de fato, documentada num guia oficial do Mercado Livre pra vendedores ("Como planejar seus envios ao Full") — mas é uma funcionalidade do painel do vendedor (frontend interno), sem endpoint de API público equivalente.
+- Existe um endpoint `/marketplace/fbm/orders` ("Get Replenishment Orders") que parecia relevante à primeira vista, mas é exclusivo do modelo **"Fully Managed" / CBT (Cross-Border Trade)** — vendedores internacionais operando via Global Selling, não o Full doméstico padrão que a A2 Embalagens usa (`logistic_type=fulfillment`). Retorna 403 fora desse modelo.
+
+**Conclusão**: RF-015 não é implementável via API pública hoje, para uma conta no modelo de Full doméstico. A única forma de comparação seria manual (usuário olhando as duas telas lado a lado). Marcado como bloqueado por limitação de API, não como pendência de implementação — se o Mercado Livre expuser esse dado no futuro, revisar aqui.
+
 ## Próxima fase (não iniciada)
-Fase 3 do PRS está com o núcleo + as 5 ações completas. Itens menores ainda não abordados: RB-005 (desconto de ruptura recente na projeção) e simulação de envio (12.2/12.4, UI adicional).
+Fase 3 do PRS está com o núcleo + as 5 ações + RB-005 + Simulação de Envio completos. Cron paralelo com 2ª loja real: usuário decidiu não conectar uma segunda conta por enquanto — tudo que depende de comparação/teste entre lojas fica pausado por essa razão, não é um bug pendente. RF-015 bloqueado por limitação da API (ver seção acima). RB-004 segue inativa até ~final de setembro/2026, comportamento esperado.

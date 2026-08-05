@@ -5711,15 +5711,6 @@ INSERT INTO "eventos" ("id","tipo","data_hora","produto_id","payload_json","orig
 INSERT INTO "eventos" ("id","tipo","data_hora","produto_id","payload_json","origem","loja_id") VALUES(2425,'sync_checkpoint_produtos','2026-08-03 13:29:13',NULL,'{"ms":35472}','worker_sync','1055727709');
 INSERT INTO "eventos" ("id","tipo","data_hora","produto_id","payload_json","origem","loja_id") VALUES(2426,'sync_checkpoint_vendas','2026-08-03 13:29:25',NULL,'{"ms":47787}','worker_sync','1055727709');
 INSERT INTO "eventos" ("id","tipo","data_hora","produto_id","payload_json","origem","loja_id") VALUES(2427,'sincronizacao_concluida','2026-08-03 13:29:54',NULL,'{"skus_atualizados":95,"vendas_analisadas":15,"estoque_atualizado":8,"remessas_encontradas":0,"performance_atualizada":15,"erros":["faturamento: Erro na API do Mercado Livre (/billing/integration/periods/key/2026-07-01/summary/details?group=ML&document_type=BILL): 429 {\"message\":\"local_rate_limited\",\"status\":429}\n"],"tempos_ms":{"produtos":35472,"vendas":47787,"estoque_remessas":60649,"performance":66068,"faturamento":68689,"missoes":76574},"missoes":{"missoes_criadas":0,"missoes_resolvidas":0,"situacoes_ativas":37}}','worker_sync','1055727709');
-CREATE TABLE ml_auth (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  loja_id TEXT NOT NULL UNIQUE,
-  access_token TEXT NOT NULL,
-  refresh_token TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  atualizado_em TEXT DEFAULT (datetime('now'))
-);
-INSERT INTO "ml_auth" ("id","loja_id","access_token","refresh_token","expires_at","atualizado_em") VALUES(1,'1055727709','APP_USR-426032379212172-080310-e6e3c210a488d46a12be647f92353d84-1055727709','TG-6a709efc76991e000191826c-1055727709','2026-08-03T20:00:28.269Z','2026-08-03 14:00:28');
 CREATE TABLE lojas (
   loja_id TEXT PRIMARY KEY,
   nickname TEXT,
@@ -7274,7 +7265,6 @@ INSERT INTO "vendas_fora_full" ("id","loja_id","pedido_id","mlb","titulo","data_
 INSERT INTO "vendas_fora_full" ("id","loja_id","pedido_id","mlb","titulo","data_hora","quantidade","valor_bruto") VALUES(1847,'1055727709','2000015324064956','MLB4750931244','Baldes 2-2l  Para Colocar Sorvete De Açaí 5 Pçs Branco','2026-02-27T16:12:49.000-04:00',1,36);
 INSERT INTO "vendas_fora_full" ("id","loja_id","pedido_id","mlb","titulo","data_hora","quantidade","valor_bruto") VALUES(1848,'1055727709','2000015324064958','MLB3735953049','Balde 5l Para Fabricar Sorvete - 5 Pçs Branco','2026-02-27T16:12:49.000-04:00',4,308);
 DELETE FROM sqlite_sequence;
-INSERT INTO "sqlite_sequence" ("name","seq") VALUES('ml_auth',1);
 INSERT INTO "sqlite_sequence" ("name","seq") VALUES('produtos',345);
 INSERT INTO "sqlite_sequence" ("name","seq") VALUES('eventos',2427);
 INSERT INTO "sqlite_sequence" ("name","seq") VALUES('vendas',4133);

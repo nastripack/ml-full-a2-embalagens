@@ -9,7 +9,7 @@ function bufferParaBase64(buffer) {
 
 // Comparacao em tempo constante - evita vazar, por tempo de resposta, quantos caracteres da
 // assinatura estao corretos (ataque de timing). Sempre percorre os dois strings por completo.
-function compararEmTempoConstante(a, b) {
+export function compararEmTempoConstante(a, b) {
   if (a.length !== b.length) return false;
   let diferenca = 0;
   for (let i = 0; i < a.length; i++) {

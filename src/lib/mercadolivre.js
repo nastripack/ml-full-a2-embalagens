@@ -51,13 +51,32 @@ export async function getValidAccessToken(db, env, lojaId) {
     return row.access_token;
   }
 
-  const refreshed = await refreshToken(env, row.refresh_token);
-  const expiresAtNovo = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
-  await db.prepare(
-    "UPDATE ml_auth SET access_token = ?, refresh_token = ?, expires_at = ?, atualizado_em = datetime('now') WHERE loja_id = ?"
-  ).bind(refreshed.access_token, refreshed.refresh_token, expiresAtNovo, lojaId).run();
+  try {
+    const refreshed = await refreshToken(env, row.refresh_token);
+    const expiresAtNovo = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
+    await db.prepare(
+      "UPDATE ml_auth SET access_token = ?, refresh_token = ?, expires_at = ?, atualizado_em = datetime('now') WHERE loja_id = ?"
+    ).bind(refreshed.access_token, refreshed.refresh_token, expiresAtNovo, lojaId).run();
 
-  return refreshed.access_token;
+    return refreshed.access_token;
+  } catch (err) {
+    // O refresh_token do Mercado Livre e' de uso unico: se duas chamadas concorrentes tentarem
+    // renovar ao mesmo tempo (ex: cron + /sync manual sobrepostos), a segunda falha porque a primeira
+    // ja invalidou o refresh_token usado. Antes de desistir, reconsulta o banco (com pequenas esperas,
+    // pra dar tempo da outra chamada terminar de gravar) - se ela ja atualizou com sucesso nesse meio
+    // tempo, usa o token dela em vez de propagar um erro evitavel.
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      if (tentativa > 0) await esperar(300);
+      const rowAtualizado = await db.prepare("SELECT * FROM ml_auth WHERE loja_id = ?").bind(lojaId).first();
+      if (rowAtualizado && rowAtualizado.access_token !== row.access_token) {
+        const expiresAtAtualizado = new Date(rowAtualizado.expires_at).getTime();
+        if (Date.now() < expiresAtAtualizado - margemMs) {
+          return rowAtualizado.access_token;
+        }
+      }
+    }
+    throw err;
+  }
 }
 
 const MAX_TENTATIVAS = 3;
