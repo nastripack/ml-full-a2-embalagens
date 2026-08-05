@@ -1,0 +1,572 @@
+<title>Prévia — Dashboard Executivo ML Full (padrão Nastripack)</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page:            #0a0d13;
+    --sidebar-bg:      #0b0e15;
+    --surface:         #141924;
+    --surface-sunken:  #1a2030;
+    --text-primary:    #f2f4f9;
+    --text-secondary:  #939bb0;
+    --text-muted:      #656d80;
+    --border:          rgba(255,255,255,0.07);
+    --border-strong:   rgba(255,255,255,0.15);
+    --accent-1:        #1d4ed8;
+    --accent-2:        #38bdf8;
+    --accent-grad:     linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    --accent:          #5b9bf5;
+    --accent-soft:     rgba(91,155,245,0.14);
+    --accent-ink:      #9cc4fb;
+    --teal:            #2dd4bf;
+    --teal-soft:       rgba(45,212,191,0.13);
+    --good:            #34d399;
+    --good-soft:       rgba(52,211,153,0.13);
+    --warning:         #eab308;
+    --warning-soft:    rgba(234,179,8,0.14);
+    --serious:         #f0975a;
+    --serious-soft:    rgba(240,151,90,0.14);
+    --critical:        #f0605f;
+    --critical-soft:   rgba(240,96,95,0.14);
+    --glow-accent:     0 6px 20px -6px rgba(29,78,216,0.55);
+    --shadow:          0 1px 2px rgba(0,0,0,0.35), 0 10px 28px -10px rgba(0,0,0,0.55);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent-2); outline-offset: 2px; border-radius: 4px;
+  }
+
+  .shell { display: flex; min-height: 100vh; }
+
+  /* ---------- sidebar ---------- */
+  .sidebar {
+    width: 228px; flex: none; background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    padding: 1.5rem 1rem 1.25rem; display: flex; flex-direction: column;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .brand { padding: 0.15rem 0.6rem 1.6rem; }
+  .brand .word { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.01em; }
+  .brand .word .dot {
+    background: var(--accent-grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand .product {
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent-ink); margin-top: 0.2rem;
+  }
+  nav.nav { display: flex; flex-direction: column; gap: 0.2rem; }
+  .nav-item {
+    display: flex; align-items: center; gap: 0.7rem; padding: 0.6rem 0.75rem;
+    border-radius: 10px; color: var(--text-secondary); font-size: 0.85rem; font-weight: 600;
+    position: relative;
+  }
+  .nav-item svg { width: 17px; height: 17px; flex: none; opacity: 0.8; }
+  .nav-item:hover { background: var(--surface); color: var(--text-primary); text-decoration: none; }
+  .nav-item.active {
+    background: var(--accent-grad); color: #fff; box-shadow: var(--glow-accent);
+  }
+  .nav-item.active svg { opacity: 1; }
+  .nav-item.active:hover { text-decoration: none; }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: -1rem; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 58%; background: var(--accent-2); border-radius: 0 3px 3px 0;
+  }
+  .sidebar-foot {
+    margin-top: auto; padding-top: 0.85rem; border-top: 1px solid var(--border);
+    font-size: 0.71rem; color: var(--text-muted); padding-left: 0.6rem;
+  }
+
+  /* ---------- main ---------- */
+  .main { flex: 1; min-width: 0; padding: 1.75rem 2rem 4rem; }
+  .wrap { max-width: 1040px; }
+
+  .preview-banner {
+    display: flex; align-items: flex-start; gap: 0.6rem;
+    background: var(--accent-soft); color: var(--accent-ink);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.7rem 1rem; font-size: 0.82rem; margin-bottom: 1.5rem; line-height: 1.5;
+  }
+  .preview-banner .dot2 { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); flex: none; margin-top: 0.45rem; }
+  .preview-banner strong { font-weight: 700; }
+
+  header.topbar {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 1rem; flex-wrap: wrap; margin-bottom: 1.75rem;
+  }
+  .eyebrow {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); margin: 0 0 0.35rem;
+  }
+  h1 { font-size: 1.5rem; font-weight: 800; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+
+  .sync-pill {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+    padding: 0.4rem 0.85rem 0.4rem 0.6rem; font-size: 0.82rem; color: var(--text-secondary);
+    box-shadow: var(--shadow);
+  }
+  .sync-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--good); flex: none;
+    animation: pulse 2.4s ease-out infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--good) 55%, transparent); }
+    70%  { box-shadow: 0 0 0 8px color-mix(in oklab, var(--good) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--good) 0%, transparent); }
+  }
+
+  section { margin-bottom: 1.5rem; }
+  .section-label {
+    font-size: 0.76rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted); margin: 0 0 0.7rem;
+  }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 1.35rem 1.5rem;
+  }
+
+  .card-head-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.1rem; }
+  .card-icon {
+    width: 34px; height: 34px; border-radius: 9px; flex: none;
+    background: var(--teal-soft); color: var(--teal);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card-icon svg { width: 17px; height: 17px; }
+  .card-titles h3 { margin: 0; font-size: 0.92rem; font-weight: 700; }
+  .card-titles p { margin: 0.1rem 0 0; font-size: 0.78rem; color: var(--text-muted); }
+  .card-head-row .spacer { flex: 1; }
+  .card-head-row .missions-total { font-size: 0.8rem; color: var(--text-secondary); }
+
+  /* ---------- headline row ---------- */
+  .headline-row { display: grid; grid-template-columns: minmax(270px, 0.85fr) 1.15fr; gap: 1rem; }
+  @media (max-width: 760px) { .headline-row { grid-template-columns: 1fr; } }
+
+  .health-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .health-card .card-head-row { align-self: stretch; }
+  .meter-wrap { position: relative; width: 208px; height: 122px; margin-bottom: 0.3rem; }
+  .meter-value {
+    position: absolute; left: 0; right: 0; bottom: 4px; text-align: center;
+    font-size: 2.5rem; font-weight: 800; font-variant-numeric: proportional-nums; letter-spacing: -0.02em;
+  }
+  .meter-value sup { font-size: 1.05rem; font-weight: 700; margin-left: 1px; }
+  .band-chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-size: 0.76rem; font-weight: 700; padding: 0.3rem 0.7rem; border-radius: 999px;
+    margin-bottom: 0.85rem;
+  }
+  .band-chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .health-caption { font-size: 0.84rem; color: var(--text-secondary); line-height: 1.5; margin: 0; }
+  .health-caption a { font-weight: 700; }
+
+  .revenue-card { display: flex; flex-direction: column; }
+  .revenue-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
+  .revenue-value {
+    font-size: 2.6rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.05;
+    font-variant-numeric: proportional-nums; margin: 0.1rem 0 0;
+  }
+  .delta-badge {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.78rem; font-weight: 700; padding: 0.3rem 0.6rem; border-radius: 8px;
+    background: var(--good-soft); color: var(--good);
+  }
+  .spark-wrap { margin-top: 1rem; flex: 1; display: flex; align-items: flex-end; }
+  .spark-wrap svg { width: 100%; height: 80px; display: block; overflow: visible; }
+  .spark-line { fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .spark-line-accent { fill: none; stroke: url(#sparkGrad); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+  .spark-area { fill: url(#sparkAreaGrad); }
+  .spark-end { fill: var(--accent-2); stroke: var(--surface); stroke-width: 2; }
+  .spark-caption { font-size: 0.74rem; color: var(--text-muted); margin-top: 0.4rem; }
+
+  /* ---------- kpi strip ---------- */
+  .kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+  @media (max-width: 900px) { .kpi-strip { grid-template-columns: repeat(2, 1fr); } }
+  .kpi-tile { padding: 1.05rem 1.2rem; }
+  .kpi-label {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-muted); margin: 0 0 0.55rem;
+  }
+  .kpi-value {
+    font-size: 1.8rem; font-weight: 800; letter-spacing: -0.01em;
+    font-variant-numeric: proportional-nums; line-height: 1.1;
+  }
+  .kpi-value.empty { color: var(--text-muted); font-weight: 700; font-size: 1.5rem; }
+  .kpi-foot { font-size: 0.76rem; color: var(--text-muted); margin-top: 0.45rem; }
+  .kpi-tile.has-risk { border-color: color-mix(in oklab, var(--critical) 40%, var(--border)); }
+  .kpi-tile.has-risk .kpi-value { color: var(--critical); }
+  .risk-pulse {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--critical); margin-right: 0.35rem;
+    animation: pulse-critical 2s ease-out infinite;
+  }
+  @keyframes pulse-critical {
+    0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--critical) 55%, transparent); }
+    70%  { box-shadow: 0 0 0 7px color-mix(in oklab, var(--critical) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--critical) 0%, transparent); }
+  }
+
+  /* ---------- detail row ---------- */
+  .detail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: stretch; }
+  @media (max-width: 800px) { .detail-row { grid-template-columns: 1fr; } }
+
+  .stack-track {
+    display: flex; width: 100%; height: 20px; border-radius: 6px; overflow: hidden;
+    background: var(--surface-sunken); gap: 2px;
+  }
+  .stack-seg { height: 100%; min-width: 3px; position: relative; cursor: default; }
+  .stack-seg[data-k="critica"]  { background: var(--critical); }
+  .stack-seg[data-k="alta"]     { background: var(--serious); }
+  .stack-seg[data-k="media"]    { background: var(--warning); }
+  .stack-seg[data-k="baixa"]    { background: var(--text-muted); opacity: 0.5; }
+  .stack-seg[title]:hover::after,
+  .stack-seg[title]:focus-visible::after {
+    content: attr(title);
+    position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+    background: var(--text-primary); color: var(--page); font-size: 0.72rem; font-weight: 700;
+    padding: 0.3rem 0.55rem; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 2;
+  }
+  .legend-row { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-top: 0.9rem; }
+  .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--text-secondary); }
+  .legend-swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .legend-swatch.critica { background: var(--critical); }
+  .legend-swatch.alta { background: var(--serious); }
+  .legend-swatch.media { background: var(--warning); }
+  .legend-swatch.baixa { background: var(--text-muted); opacity: 0.5; }
+  .legend-item strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+  .action-list { list-style: none; margin: 0 0 1.1rem; padding: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+  .action-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.65rem 0.75rem; border-radius: 10px; background: var(--surface-sunken);
+    border: 1px solid transparent;
+  }
+  .action-badge {
+    flex: none; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.03em; color: var(--critical);
+    background: var(--critical-soft); border-radius: 6px; padding: 0.22rem 0.45rem;
+  }
+  .action-name { flex: 1; font-size: 0.85rem; font-weight: 600; line-height: 1.35; }
+  .action-meta { font-size: 0.76rem; color: var(--text-muted); font-weight: 500; }
+  .action-qty {
+    flex: none; font-size: 0.8rem; font-weight: 700; color: var(--accent-ink);
+    background: var(--accent-soft); border-radius: 8px; padding: 0.3rem 0.55rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- buttons (padrão Nastripack: pill sólido em gradiente / contorno) ---------- */
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%;
+    font-size: 0.84rem; font-weight: 700; padding: 0.7rem 1.1rem; border-radius: 10px;
+    border: 1px solid transparent; cursor: pointer; text-decoration: none;
+  }
+  .btn:hover { text-decoration: none; }
+  .btn svg { width: 15px; height: 15px; flex: none; }
+  .btn-primary { background: var(--accent-grad); color: #fff; box-shadow: var(--glow-accent); }
+  .btn-primary:hover { filter: brightness(1.08); }
+
+  footer.disclosure {
+    margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border);
+    font-size: 0.78rem; color: var(--text-muted); line-height: 1.6;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sync-dot, .risk-pulse { animation: none; }
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="word">nastripack<span class="dot">.</span></div>
+      <div class="product">ML FULL</div>
+    </div>
+    <nav class="nav">
+      <a class="nav-item active" href="#" onclick="return false;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"></rect><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"></rect><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"></rect><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"></rect></svg>
+        Visão Geral
+      </a>
+      <a class="nav-item" href="#" onclick="return false;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"></path><path d="M5 5h12l-2.5 3.5L17 12H5"></path></svg>
+        Central de Missões
+      </a>
+      <a class="nav-item" href="#" onclick="return false;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5l9-4.5 9 4.5-9 4.5-9-4.5z"></path><path d="M3 7.5v9l9 4.5 9-4.5v-9"></path><path d="M12 12v9"></path></svg>
+        Aptos pro Full
+      </a>
+      <a class="nav-item" href="#" onclick="return false;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7.5 4 15 2-7.5h6"></path></svg>
+        Saúde do Sistema
+      </a>
+      <a class="nav-item" href="#" onclick="return false;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M20 20l-5.4-5.4"></path></svg>
+        Pesquisa
+      </a>
+    </nav>
+    <div class="sidebar-foot">ML Full &middot; uso interno</div>
+  </aside>
+
+  <main class="main">
+    <div class="wrap">
+
+      <div class="preview-banner">
+        <span class="dot2"></span>
+        <span><strong>Prévia de design</strong> — layout no padrão visual Nastripack (mesma paleta, tipografia e componentes de cotacao.nastripack.com.br e /configuracoes). Números reais do sistema em 04/08/2026; a curva de vendas usa o formato real a partir de uma amostra recente. Nada aqui está publicado — é só pra aprovação.</span>
+      </div>
+
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">ML Full — A2 Plásticos</p>
+          <h1>Dashboard Executivo</h1>
+        </div>
+        <div class="sync-pill">
+          <span class="sync-dot"></span>
+          Sincronizado às 15:27 &middot; loja 1055727709
+        </div>
+      </header>
+
+      <section class="headline-row">
+        <div class="card health-card">
+          <div class="card-head-row">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7.5 4 15 2-7.5h6"></path></svg>
+            </span>
+            <div class="card-titles">
+              <h3>Índice de Saúde</h3>
+              <p>da operação</p>
+            </div>
+          </div>
+          <div class="meter-wrap">
+            <svg viewBox="0 0 216 128" width="208" height="122" aria-hidden="true">
+              <path d="M 18 118 A 90 90 0 0 1 198 118" fill="none" style="stroke:var(--surface-sunken)" stroke-width="14" stroke-linecap="round"></path>
+              <path id="meterFill" d="M 18 118 A 90 90 0 0 1 198 118" fill="none" style="stroke:var(--serious)" stroke-width="14" stroke-linecap="round"
+                    stroke-dasharray="282.74" stroke-dashoffset="282.74"></path>
+            </svg>
+            <div class="meter-value" id="healthValue">0<sup>%</sup></div>
+          </div>
+          <span class="band-chip" style="background:var(--serious-soft); color:var(--serious);">
+            <span class="dot" style="background:var(--serious);"></span> Requer atenção
+          </span>
+          <p class="health-caption">
+            1 missão crítica + 5 de alta prioridade, de 34 situações abertas.<br>
+            <a href="#" onclick="return false;">Ver Central de Missões →</a>
+          </p>
+        </div>
+
+        <div class="card revenue-card">
+          <div class="card-head-row">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7.5-8.5"></path><path d="M14.5 6.5H21V13"></path></svg>
+            </span>
+            <div class="card-titles">
+              <h3>Valor líquido vendido</h3>
+              <p>Últimos 30 dias</p>
+            </div>
+            <span class="spacer"></span>
+            <span class="delta-badge">▲ 17,7%</span>
+          </div>
+          <div class="revenue-value" id="revenueValue">R$ 0,00</div>
+          <div class="spark-wrap">
+            <svg id="sparkSvg" viewBox="0 0 440 80" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="sparkGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stop-color="#1d4ed8"></stop>
+                  <stop offset="1" stop-color="#38bdf8"></stop>
+                </linearGradient>
+                <linearGradient id="sparkAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#38bdf8" stop-opacity="0.22"></stop>
+                  <stop offset="1" stop-color="#38bdf8" stop-opacity="0"></stop>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <p class="spark-caption">Vendas líquidas por dia &middot; formato ilustrativo a partir de amostra histórica</p>
+        </div>
+      </section>
+
+      <section>
+        <p class="section-label">Panorama rápido</p>
+        <div class="kpi-strip">
+          <div class="card kpi-tile">
+            <p class="kpi-label">Pedidos (30 dias)</p>
+            <div class="kpi-value" data-count-to="79">0</div>
+            <p class="kpi-foot">▲ 19,7% vs. período anterior</p>
+          </div>
+          <div class="card kpi-tile has-risk">
+            <p class="kpi-label">Itens em risco de ruptura</p>
+            <div class="kpi-value" data-count-to="10">0</div>
+            <p class="kpi-foot"><span class="risk-pulse"></span>1 crítico agora</p>
+          </div>
+          <div class="card kpi-tile">
+            <p class="kpi-label">Coleta Full &middot; agosto/2026</p>
+            <div class="kpi-value">R$&nbsp;139,67</div>
+            <p class="kpi-foot" style="color:var(--text-muted)">▲ 0,1% vs. mês anterior</p>
+          </div>
+          <div class="card kpi-tile">
+            <p class="kpi-label">Custo médio por unidade</p>
+            <div class="kpi-value empty">—</div>
+            <p class="kpi-foot">Aguardando remessa de agosto</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="detail-row">
+        <div class="card missions-card">
+          <div class="card-head-row">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"></path><path d="M5 5h12l-2.5 3.5L17 12H5"></path></svg>
+            </span>
+            <div class="card-titles">
+              <h3>Missões por prioridade</h3>
+              <p>Central de Missões</p>
+            </div>
+            <span class="spacer"></span>
+            <span class="missions-total">34 abertas</span>
+          </div>
+          <div class="stack-track" role="img" aria-label="1 crítica, 5 alta, 14 média, 14 baixa, de 34 missões abertas">
+            <div class="stack-seg" data-k="critica" style="width:2.9%" title="Crítica — 1" tabindex="0"></div>
+            <div class="stack-seg" data-k="alta" style="width:14.7%" title="Alta — 5" tabindex="0"></div>
+            <div class="stack-seg" data-k="media" style="width:41.2%" title="Média — 14" tabindex="0"></div>
+            <div class="stack-seg" data-k="baixa" style="width:41.2%" title="Baixa — 14" tabindex="0"></div>
+          </div>
+          <div class="legend-row">
+            <span class="legend-item"><span class="legend-swatch critica"></span>Crítica <strong>1</strong></span>
+            <span class="legend-item"><span class="legend-swatch alta"></span>Alta <strong>5</strong></span>
+            <span class="legend-item"><span class="legend-swatch media"></span>Média <strong>14</strong></span>
+            <span class="legend-item"><span class="legend-swatch baixa"></span>Baixa <strong>14</strong></span>
+          </div>
+          <div style="margin-top:1.1rem;">
+            <a class="btn btn-primary" href="#" onclick="return false;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg>
+              Ver Central de Missões completa
+            </a>
+          </div>
+        </div>
+
+        <div class="card action-card">
+          <div class="card-head-row">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 14h6l-1 8 9-12h-6l1-8z"></path></svg>
+            </span>
+            <div class="card-titles">
+              <h3>Ação recomendada agora</h3>
+              <p>Planejador de Envios</p>
+            </div>
+            <span class="spacer"></span>
+            <span class="missions-total">reposição Full</span>
+          </div>
+          <ul class="action-list">
+            <li class="action-row">
+              <span class="action-badge">CRÍTICO</span>
+              <span class="action-name">Nastripack Pote Retangular 10L<br><span class="action-meta">cobertura de 2 dias</span></span>
+              <span class="action-qty">enviar 14</span>
+            </li>
+            <li class="action-row">
+              <span class="action-badge">CRÍTICO</span>
+              <span class="action-name">Balde Quadrado Grande 20L<br><span class="action-meta">cobertura de 3 dias</span></span>
+              <span class="action-qty">enviar 10</span>
+            </li>
+            <li class="action-row">
+              <span class="action-badge">CRÍTICO</span>
+              <span class="action-name">Balde Plástico 3,6L Alimentício<br><span class="action-meta">estoque zerado</span></span>
+              <span class="action-qty">enviar 9</span>
+            </li>
+          </ul>
+          <a class="btn btn-primary" href="#" onclick="return false;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg>
+            Ver Planejador de Envios completo
+          </a>
+        </div>
+      </section>
+
+      <footer class="disclosure">
+        Índice de saúde, missões, gastos com transporte e pedidos são valores reais do sistema, capturados em 04/08/2026.
+        A curva de vendas usa o formato diário real do produto, a partir de uma amostra histórica — a versão implementada
+        vai puxar a série ao vivo do banco. Layout e componentes seguem o padrão visual das outras ferramentas internas
+        Nastripack (sempre em tema escuro, sem alternância clara/escura — assim como cotação e configurações). Esta
+        página é só uma prévia de design para aprovação; os links e o menu não navegam para telas de verdade.
+      </footer>
+
+    </div>
+  </main>
+
+</div>
+
+<script>
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function animateNumber(el, to, opts) {
+    opts = opts || {};
+    const prefix = opts.prefix || "";
+    const decimals = opts.decimals || 0;
+    const duration = reduceMotion ? 0 : (opts.duration || 1000);
+    const start = performance.now();
+    function frame(now) {
+      const t = duration === 0 ? 1 : Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const value = to * eased;
+      el.textContent = prefix + value.toLocaleString("pt-BR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+      if (t < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // Índice de Saúde: arco + numero sobem juntos
+  (function () {
+    const target = 45;
+    const circumference = 282.74;
+    const fill = document.getElementById("meterFill");
+    const valueEl = document.getElementById("healthValue");
+    const duration = reduceMotion ? 0 : 1100;
+    const start = performance.now();
+    function frame(now) {
+      const t = duration === 0 ? 1 : Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const pct = target * eased;
+      fill.setAttribute("stroke-dashoffset", String(circumference * (1 - pct / 100)));
+      valueEl.innerHTML = Math.round(pct) + "<sup>%</sup>";
+      if (t < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  })();
+
+  animateNumber(document.getElementById("revenueValue"), 11532.43, { prefix: "R$ ", decimals: 2, duration: 1200 });
+  document.querySelectorAll("[data-count-to]").forEach(el => {
+    animateNumber(el, Number(el.dataset.countTo), { duration: 1000 });
+  });
+
+  // Sparkline: serie real (formato) de vendas liquidas diarias, amostra historica
+  (function () {
+    const data = [854.58,805.0,786.93,861.08,440.0,590.55,819.0,728.93,257.22,545.1,135.0,135.0,270.0,423.0,130.0,390.0,109.0,249.4,476.4,324.0,378.4,294.1];
+    const w = 440, h = 80, pad = 6;
+    const max = Math.max(...data), min = 0;
+    const stepX = (w - pad * 2) / (data.length - 1);
+    const points = data.map((v, i) => {
+      const x = pad + i * stepX;
+      const y = h - pad - ((v - min) / (max - min)) * (h - pad * 2);
+      return [x, y];
+    });
+    const cut = points.length - 3;
+    const toPath = pts => pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+    const base = points.slice(0, cut + 1);
+    const accentSeg = points.slice(cut);
+    const areaPath = toPath(points) + ` L ${points[points.length - 1][0].toFixed(1)},${h - pad} L ${points[0][0].toFixed(1)},${h - pad} Z`;
+    const last = points[points.length - 1];
+
+    const svg = document.getElementById("sparkSvg");
+    svg.insertAdjacentHTML("beforeend",
+      `<path class="spark-area" d="${areaPath}"></path>` +
+      `<path class="spark-line" d="${toPath(base)}"></path>` +
+      `<path class="spark-line-accent" d="${toPath(accentSeg)}"></path>` +
+      `<circle class="spark-end" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="4.5"></circle>`);
+  })();
+</script>

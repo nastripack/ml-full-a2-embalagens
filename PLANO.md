@@ -262,3 +262,20 @@ Usuário reportou estar recebendo vários e-mails "[ML Full A2] Falha na sincron
 
 ## Próxima fase (não iniciada)
 Fase 3 do PRS está com o núcleo + as 5 ações completas. Itens menores ainda não abordados: RB-005 (desconto de ruptura recente na projeção) e simulação de envio (12.2/12.4, UI adicional).
+
+## Padronização visual do dashboard no padrão Nastripack (em andamento)
+
+Pedido do usuário: o dashboard hoje usa um `layout()` (`src/routes/dashboard.js`) light-only, escrito solto, sem nenhuma relação com a identidade visual usada nas outras ferramentas internas da Nastripack (`cotacao.nastripack.com.br` e o painel `/configuracoes`, um app de disparo de e-mail chamado "Nastripack Mailer"). Objetivo: portar o dashboard (e, na sequência, as demais telas — `/saude`, `/missoes`, `/aptos-full`, `/pesquisa`, que reaproveitam o mesmo `layout()`) pra esse padrão.
+
+**Acesso ao site de referência bloqueado**: `cotacao.nastripack.com.br` está fora da política de egress deste ambiente (proxy da organização devolve 403 — bloqueio de infraestrutura, não de autenticação; confirmado via `$HTTPS_PROXY/__agentproxy/status`, `recentRelayFailures: connect_rejected`). `127.0.0.1:8080/configuracoes` é uma máquina local do usuário, também inacessível daqui. Não há repositório do layout compartilhado no GitHub da organização (só `ml-full-a2-embalagens` está no escopo desta sessão). Caminho usado: o usuário forneceu 3 screenshots (cotação — itens/modalidade de entrega; cotação — formulário de cliente/condições comerciais; `/configuracoes` do Mailer — sidebar completa) e os tokens visuais foram extraídos manualmente deles.
+
+**Tokens extraídos (tema sempre escuro — nenhuma referência tem modo claro, decisão deliberada de manter só escuro por ora)**:
+- Fundo quase preto (~`#0a0d13`), cards em cinza-chumbo escuro (~`#141924`) com borda sutil 1px e cantos arredondados ~12-14px.
+- Accent principal em gradiente azul→ciano (`#1d4ed8` → `#38bdf8`), usado em botões primários (pílula, largura total) e no item ativo da navegação, com leve glow.
+- Ícone circular teal (`#2dd4bf`) como cabeçalho decorativo de cada painel/card (mesmo padrão de "Servidor SMTP"/"Cadência de Envio" no Mailer).
+- Labels em caixa alta, tracked, cinza-azulado; inputs com fundo escuro e borda sutil.
+- Sidebar fixa à esquerda: wordmark "nastripack." (ponto em gradiente) + subtítulo do produto abaixo, itens de menu com ícone, item ativo em pílula com barra de destaque na borda esquerda, rodapé com texto pequeno tipo "vX.X — uso interno".
+
+**Estado atual**: prévia construída como Claude Artifact (iterada em conjunto com o usuário — layout inicial em tema claro/escuro genérico foi refeito do zero depois dos prints de referência) e salva no repositório em `design/dashboard-preview.html` (HTML estático autocontido, sem dependência de dado real do banco — números de exemplo). Link da prévia publicada: https://claude.ai/code/artifact/2b38dac3-9562-4892-b8e0-819b942367ff — aprovação de paleta/brilho/fundo/caixa confirmada pelo usuário; sidebar usa os itens de navegação reais deste projeto (Visão Geral, Central de Missões, Aptos pro Full, Saúde do Sistema, Pesquisa), não uma cópia literal do menu do Mailer.
+
+**Pendente**: nenhuma linha de `src/routes/*.js` foi alterada ainda — é só a prévia. Próximo passo é portar os tokens pro `layout()` de verdade usado por `dashboard.js`, e depois replicar pras outras telas que compartilham esse `layout()` (`saude.js`, `missoes.js`, `aptos.js`, `pesquisa.js`) pra manter consistência entre todas.
