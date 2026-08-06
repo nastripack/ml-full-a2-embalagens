@@ -158,9 +158,10 @@ async function renderOverview(env) {
   <h1>Visao Geral - Mercado Livre Full</h1>
 
   <h2>Lojas conectadas</h2>
+  <a href="/auth/login" style="display:inline-block;margin-bottom:1rem;padding:0.6rem 1.1rem;border-radius:6px;background:#1a56db;color:white;font-weight:600;">+ Conectar nova loja</a>
   <div class="table-wrap"><table>
     <thead><tr><th>Loja</th></tr></thead>
-    <tbody>${linhasLojas || '<tr><td>Nenhuma loja conectada ainda. Acesse /auth/login para conectar a primeira.</td></tr>'}</tbody>
+    <tbody>${linhasLojas || '<tr><td>Nenhuma loja conectada ainda.</td></tr>'}</tbody>
   </table></div>
 
   <h2>Ranking de vendas (30 dias)</h2>
@@ -339,9 +340,33 @@ async function renderLoja(env, lojaId, recemConectado) {
   ).bind(lojaId).first();
 
   const receitaAnterior = await db.prepare(
-    "SELECT COALESCE(SUM(valor_liquido), 0) as total FROM vendas WHERE loja_id = ? AND data_hora >= datetime('now', '-60 days') AND data_hora < datetime('now', '-30 days')"
+    "SELECT COALESCE(SUM(valor_liquido), 0) as total, COUNT(*) as pedidos FROM vendas WHERE loja_id = ? AND data_hora >= datetime('now', '-60 days') AND data_hora < datetime('now', '-30 days')"
   ).bind(lojaId).first();
   const variacaoReceita = receitaAnterior.total > 0 ? (totalVendido.total - receitaAnterior.total) / receitaAnterior.total : null;
+
+  // Aviso de transicao do bug de comissao (ver PLANO.md): vendas antes de 01/08/2026 tem
+  // valor_liquido == valor_bruto (comissao nao descontada), sem backfill retroativo por decisao do
+  // usuario. A janela "30-60 dias atras" so fica 100% livre dessa contaminacao quando "hoje - 60
+  // dias" >= 01/08/2026, ou seja, a partir de ~30/09/2026 - antes disso, a comparacao de tendencia
+  // pode ficar artificialmente negativa conforme a janela atual for ganhando dias corretamente
+  // descontados enquanto a anterior continua 100% inflada. Auto-expira sozinho depois dessa data.
+  const FIM_TRANSICAO_COMISSAO = new Date(Date.UTC(2026, 8, 30)); // 30/09/2026 (mes 8 = setembro, zero-indexed)
+  const emTransicaoComissao = Date.now() < FIM_TRANSICAO_COMISSAO.getTime();
+
+  const ticketMedioAtual = totalVendido.pedidos > 0 ? totalVendido.total / totalVendido.pedidos : 0;
+  const ticketMedioAnterior = receitaAnterior.pedidos > 0 ? receitaAnterior.total / receitaAnterior.pedidos : null;
+  const variacaoTicket = ticketMedioAnterior > 0 ? (ticketMedioAtual - ticketMedioAnterior) / ticketMedioAnterior : null;
+
+  // Top produtos (30d) desta loja - mesma pergunta que ja existe no renderOverview (comparando
+  // lojas), mas nunca trazida pra dentro do painel de uma loja especifica: "o que esta funcionando,
+  // pra eu reforcar?"
+  const topProdutosRows = await db.prepare(
+    `SELECT p.nome, SUM(v.quantidade) as qtd, SUM(v.valor_liquido) as receita
+     FROM vendas v JOIN produtos p ON p.id = v.produto_id
+     WHERE v.loja_id = ? AND v.data_hora >= datetime('now', '-30 days')
+     GROUP BY v.produto_id ORDER BY receita DESC LIMIT 5`
+  ).bind(lojaId).all();
+  const topProdutos = topProdutosRows.results || [];
 
   const vendasDiariasRows = await db.prepare(
     `SELECT date(data_hora) as dia, COALESCE(SUM(valor_liquido), 0) as total
@@ -360,6 +385,15 @@ async function renderLoja(env, lojaId, recemConectado) {
     if (linha.status in contagemStatus) contagemStatus[linha.status] = linha.total;
     else contagemStatus.outros += linha.total;
   }
+
+  // Full vs. Fora do Full: quanto do negocio ja migrou pro Full vs. ainda vende fora. Nota: fora do
+  // Full so tem valor_bruto (sem desconto de comissao/frete), enquanto a receita Full acima e'
+  // valor_liquido - nao e' comparacao perfeita "maca com maca", mas da a ordem de grandeza certa.
+  const foraDoFull = await db.prepare(
+    "SELECT COALESCE(SUM(valor_bruto), 0) as total, COUNT(DISTINCT pedido_id) as pedidos FROM vendas_fora_full WHERE loja_id = ? AND data_hora >= datetime('now', '-30 days')"
+  ).bind(lojaId).first();
+  const totalGeralAprox = totalVendido.total + foraDoFull.total;
+  const pctFull = totalGeralAprox > 0 ? (totalVendido.total / totalGeralAprox) * 100 : null;
 
   const ultimaSync = await db.prepare(
     "SELECT data_hora, payload_json FROM eventos WHERE loja_id = ? AND tipo = 'sincronizacao_concluida' ORDER BY data_hora DESC LIMIT 1"
@@ -380,11 +414,18 @@ async function renderLoja(env, lojaId, recemConectado) {
   }
   const totalMissoesAbertas = Object.values(contagemMissoes).reduce((a, b) => a + b, 0);
 
+  // Momentum: missoes resolvidas nos ultimos 7 dias - sem isso, o painel so mostra "quanto ainda
+  // falta", nunca "quanto ja foi resolvido". Contexto de progresso, nao so de pendencia.
+  const missoesResolvidas7d = await db.prepare(
+    "SELECT COUNT(*) as total FROM missoes WHERE loja_id = ? AND status = 'resolvida' AND resolvido_em >= datetime('now', '-7 days')"
+  ).bind(lojaId).first();
+
   // Oportunidade Full: quantos anuncios fora do Full ja tem potencial forte comprovado (score >= 60,
   // combinando regularidade + crescimento + estabilidade - ver listarAptosParaFull). E' metrica
   // positiva (mais candidato = melhor), entao NAO usa o semaforo de risco dos outros cards.
   const aptosFull = await listarAptosParaFull(db, lojaId);
   const candidatosFortes = aptosFull.filter(a => a.score >= 60).length;
+  const quaseAptos = aptosFull.filter(a => a.score >= 40 && a.score < 60).slice(0, 8);
   const melhorScore = aptosFull.length > 0 ? aptosFull[0].score : null;
 
   const LABEL_COLETA_FULL = "Custo do serviço de coleta Full";
@@ -502,6 +543,8 @@ async function renderLoja(env, lojaId, recemConectado) {
   .receita-badge-baixa { background: rgba(239,68,68,0.14); color: var(--critico); }
   .receita-meta { font-size: 0.82rem; color: var(--texto-fraco); width: 100%; }
   .receita-meta b { color: var(--texto); font-weight: 700; }
+  .aviso-dados { display: flex; gap: 0.5rem; align-items: flex-start; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.35); border-radius: 8px; padding: 0.6rem 0.8rem; margin-top: 0.8rem; font-size: 0.76rem; color: var(--texto-fraco); line-height: 1.4; }
+  .aviso-dados svg { width: 15px; height: 15px; flex-shrink: 0; color: var(--atencao); margin-top: 0.1rem; }
   .grafico-receita { width: 100%; height: auto; display: block; }
   .gr-eixo { stroke: var(--borda-forte); stroke-width: 1; }
   .gr-area { fill: rgba(37, 99, 235, 0.12); }
@@ -550,7 +593,8 @@ async function renderLoja(env, lojaId, recemConectado) {
       <h1>${escapeHtml(nomeLoja)}</h1>
     </div>
     <div class="topo-links">
-      <a class="botao botao-fantasma" href="/">Ver todas as lojas</a>
+      <a class="botao botao-fantasma" href="/?ver_todas=1">Ver todas as lojas</a>
+      <a class="botao botao-fantasma" href="/auth/login">+ Nova Loja</a>
       <a class="botao botao-primario" href="/sync?loja=${encodeURIComponent(lojaId)}">Sincronizar agora</a>
     </div>
   </div>
@@ -575,7 +619,7 @@ async function renderLoja(env, lojaId, recemConectado) {
     ${statCard("sync", "Sincronização", ROTULO_STATUS[sSync.nivel], sSync.texto, sSync.nivel)}
     ${statCard("pulso", "Índice de Saúde", indiceSaude === null ? "-" : `${indiceSaude}%`, sSaude.texto, sSaude.nivel)}
     ${statCard("alerta", "Risco de Ruptura", `${itensCriticosCount + itensAltosCount}`, `${itensCriticosCount} crítico(s) · ${itensAltosCount} alto(s)`, sRuptura.nivel)}
-    ${statCard("alvo", "Missões Abertas", `${totalMissoesAbertas}`, totalMissoesAbertas === 0 ? "operação sob controle" : `${contagemMissoes.critico} crítica(s) · ${contagemMissoes.alto} alta(s)`, sMissoes.nivel)}
+    ${statCard("alvo", "Missões Abertas", `${totalMissoesAbertas}`, totalMissoesAbertas === 0 ? "operação sob controle" : `${contagemMissoes.critico} crítica(s) · ${contagemMissoes.alto} alta(s) · ${missoesResolvidas7d.total} resolvida(s)/7d`, sMissoes.nivel)}
     ${opportunityCard("tendencia", "Oportunidade Full", `${candidatosFortes}`, melhorScore === null ? "nenhum candidato ainda" : `${aptosFull.length} candidato(s) · melhor score ${melhorScore}`)}
   </div>
 
@@ -585,9 +629,10 @@ async function renderLoja(env, lojaId, recemConectado) {
       <div class="receita-topo">
         <div class="receita-valor">${formatarMoeda(totalVendido.total)}</div>
         ${variacaoReceita !== null ? `<span class="receita-badge ${variacaoReceita >= 0 ? "receita-badge-alta" : "receita-badge-baixa"}">${variacaoReceita >= 0 ? "+" : ""}${formatarNumero(variacaoReceita * 100, 1)}% vs. 30d anteriores</span>` : ""}
-        <div class="receita-meta">${totalVendido.pedidos} pedido(s) · ticket médio <b>${formatarMoeda(totalVendido.pedidos > 0 ? totalVendido.total / totalVendido.pedidos : 0)}</b></div>
+        <div class="receita-meta">${totalVendido.pedidos} pedido(s) · ticket médio <b>${formatarMoeda(ticketMedioAtual)}</b>${variacaoTicket !== null ? ` <span class="receita-badge ${variacaoTicket >= 0 ? "receita-badge-alta" : "receita-badge-baixa"}" style="font-size:0.7rem;">${variacaoTicket >= 0 ? "+" : ""}${formatarNumero(variacaoTicket * 100, 1)}%</span>` : ""}</div>
       </div>
       ${graficoReceita(serieReceita)}
+      ${emTransicaoComissao ? `<div class="aviso-dados">${icone("alerta")}<span>Vendas antes de 01/08/2026 ainda não têm a comissão do Mercado Livre descontada (bug histórico corrigido nessa data, sem reprocessamento retroativo). A comparação com o período anterior pode ficar distorcida até ~30/09/2026, enquanto a janela de 60 dias inclui dado dos dois lados da correção.</span></div>` : ""}
     </div>
     <div class="painel-box">
       <h2>${icone("caminhao")} Transporte</h2>
@@ -607,6 +652,21 @@ async function renderLoja(env, lojaId, recemConectado) {
     </div>
   </div>
 
+  ${topProdutos.length > 0 ? `
+  <div class="painel-box tabela-box catalogo-box">
+    <h2>${icone("tendencia")} Top 5 produtos — últimos 30 dias</h2>
+    <table>
+      <thead><tr><th>#</th><th>Produto</th><th>Qtd. vendida</th><th>Receita líquida</th></tr></thead>
+      <tbody>${topProdutos.map((p, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${escapeHtml(p.nome)}</td>
+          <td>${p.qtd}</td>
+          <td>${formatarMoeda(p.receita)}</td>
+        </tr>`).join("")}</tbody>
+    </table>
+  </div>` : ""}
+
   <div class="painel-box catalogo-box">
     <h2>${icone("caixa")} Catálogo</h2>
     <div class="catalogo-grade">
@@ -625,6 +685,41 @@ async function renderLoja(env, lojaId, recemConectado) {
       ${contagemStatus.outros > 0 ? `<div class="catalogo-item"><div class="catalogo-valor">${contagemStatus.outros}</div><div class="catalogo-label">Outros status</div></div>` : ""}
     </div>
   </div>
+
+  <div class="painel-box catalogo-box">
+    <h2>${icone("tendencia")} Full vs. Fora do Full — últimos 30 dias</h2>
+    <div class="catalogo-grade">
+      <div class="catalogo-item">
+        <div class="catalogo-valor">${pctFull === null ? "-" : `${formatarNumero(pctFull, 0)}%`}</div>
+        <div class="catalogo-label">Receita vindo do Full</div>
+      </div>
+      <div class="catalogo-item">
+        <div class="catalogo-valor">${formatarMoeda(totalVendido.total)}</div>
+        <div class="catalogo-label">Full (líquido)</div>
+      </div>
+      <div class="catalogo-item">
+        <div class="catalogo-valor">${formatarMoeda(foraDoFull.total)}</div>
+        <div class="catalogo-label">Fora do Full (bruto)</div>
+      </div>
+    </div>
+    <p class="transporte-nota">Comparação aproximada: receita Full já é líquida (descontadas comissão/frete), fora do Full é valor bruto — não há detalhamento de taxas pra vendas fora do Full via API.</p>
+  </div>
+
+  ${quaseAptos.length > 0 ? `
+  <div class="painel-box catalogo-box tabela-box">
+    <h2>${icone("tendencia")} Quase aptos para o Full — candidatos em crescimento (score 40-59)</h2>
+    <table>
+      <thead><tr><th>Produto</th><th>Score</th><th>Regularidade</th><th>Vendas 30d</th></tr></thead>
+      <tbody>${quaseAptos.map(a => `
+        <tr>
+          <td>${escapeHtml(a.titulo)}</td>
+          <td>${a.score}</td>
+          <td>${a.regularidade}%</td>
+          <td>${a.vendas30}</td>
+        </tr>`).join("")}</tbody>
+    </table>
+    <p class="transporte-nota">Ainda não entram na Central de Missões (score abaixo de 60) — vale observar se continuam subindo antes de decidir migrar pro Full.</p>
+  </div>` : ""}
 
   <div class="painel-box tabela-box">
     <h2>Planejador — itens que precisam de decisão agora</h2>
@@ -647,7 +742,9 @@ export async function handleDashboard(request, env) {
 
   // Com uma unica loja ativa, pula a tela de "escolha a loja" e vai direto pro painel - hoje so
   // a A2 Plasticos esta conectada, entao "/" sempre deveria abrir o painel de comando direto.
-  if (!lojaId) {
+  // ?ver_todas=1 e' o escape hatch pro link "Ver todas as lojas" do proprio painel - sem ele, esse
+  // link ficaria preso num redirecionamento circular de volta pro mesmo painel.
+  if (!lojaId && url.searchParams.get("ver_todas") !== "1") {
     const lojasAtivas = await env.DB.prepare("SELECT loja_id FROM lojas WHERE ativo = 1").all();
     const lista = lojasAtivas.results || [];
     if (lista.length === 1) {
