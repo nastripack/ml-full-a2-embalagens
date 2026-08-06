@@ -335,6 +335,10 @@ async function renderLoja(env, lojaId, recemConectado) {
 
   const loja = await db.prepare("SELECT nickname FROM lojas WHERE loja_id = ?").bind(lojaId).first();
 
+  // Seletor rapido de loja: busca todas as ativas mesmo com so 1 conectada hoje - construido agora
+  // pra nao precisar de retrabalho quando a 2a/3a loja entrarem, so passa a ter mais de 1 opcao.
+  const todasAsLojas = await db.prepare("SELECT loja_id, nickname FROM lojas WHERE ativo = 1 ORDER BY nickname").all();
+
   const totalVendido = await db.prepare(
     "SELECT COALESCE(SUM(valor_liquido), 0) as total, COUNT(*) as pedidos FROM vendas WHERE loja_id = ? AND data_hora >= datetime('now', '-30 days')"
   ).bind(lojaId).first();
@@ -492,7 +496,12 @@ async function renderLoja(env, lojaId, recemConectado) {
   .marca { font-weight: 800; font-size: 0.95rem; letter-spacing: -0.01em; color: var(--texto); }
   .marca span { color: var(--acento); }
   .eyebrow { font-size: 0.72rem; letter-spacing: 0.12em; color: var(--texto-fraco); text-transform: uppercase; margin: 0.4rem 0 0.3rem; font-weight: 600; }
-  .topo h1 { margin: 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.01em; }
+  .loja-seletor-wrap { position: relative; display: inline-block; }
+  .loja-seletor { appearance: none; -webkit-appearance: none; background: transparent; border: none; color: var(--texto); font-family: inherit; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.01em; padding: 0 1.6rem 0 0; cursor: pointer; }
+  .loja-seletor:disabled { cursor: default; opacity: 1; -webkit-text-fill-color: var(--texto); }
+  .loja-seletor:not(:disabled):hover { color: var(--acento); }
+  .loja-seletor-wrap::after { content: ""; position: absolute; right: 0.15rem; top: 50%; width: 9px; height: 9px; border-right: 2px solid var(--texto-fraco); border-bottom: 2px solid var(--texto-fraco); transform: translateY(-70%) rotate(45deg); pointer-events: none; }
+  .loja-seletor-wrap:has(select:disabled)::after { display: none; }
   .topo-links { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
   .botao { text-decoration: none; font-size: 0.84rem; font-weight: 600; padding: 0.55rem 0.95rem; border-radius: 8px; }
   .botao-fantasma { color: var(--texto-fraco); border: 1.5px solid var(--borda-forte); background: transparent; }
@@ -590,7 +599,11 @@ async function renderLoja(env, lojaId, recemConectado) {
     <div>
       <p class="marca">Nastripack<span>.</span></p>
       <p class="eyebrow">Painel · Mercado Livre Full</p>
-      <h1>${escapeHtml(nomeLoja)}</h1>
+      <div class="loja-seletor-wrap">
+        <select class="loja-seletor" onchange="if(this.value)location.href='/?loja='+encodeURIComponent(this.value)" ${todasAsLojas.results.length <= 1 ? "disabled" : ""}>
+          ${todasAsLojas.results.map(l => `<option value="${escapeHtml(l.loja_id)}" ${l.loja_id === lojaId ? "selected" : ""}>${escapeHtml(l.nickname)}</option>`).join("")}
+        </select>
+      </div>
     </div>
     <div class="topo-links">
       <a class="botao botao-fantasma" href="/?ver_todas=1">Ver todas as lojas</a>
