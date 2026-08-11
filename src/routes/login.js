@@ -3,6 +3,24 @@ import { criarToken, cookieDeSessao, cookieDeLogout, compararEmTempoConstante } 
 const DOMINIO_COOKIE = ".nastripack.com.br";
 const HOST_DASHBOARD = "full.nastripack.com.br";
 
+// full2 e' a "contracapa" de login compartilhada por todos os apps no dominio .nastripack.com.br
+// (full, anuncios, ...) - por isso o redirect pos-login precisa saber voltar pro host de origem,
+// nao so pro full. So aceita voltar pra hosts conhecidos da propria empresa, pra um "redirect"
+// forjado nao virar open redirect pra fora do dominio.
+const HOSTS_REDIRECT_PERMITIDOS = ["full.nastripack.com.br", "anuncios.nastripack.com.br"];
+
+function destinoSeguro(redirect) {
+  if (!redirect) return `https://${HOST_DASHBOARD}/`;
+  if (redirect.startsWith("/")) return `https://${HOST_DASHBOARD}${redirect}`; // path relativo = full (comportamento historico)
+  try {
+    const alvo = new URL(redirect);
+    if (alvo.protocol === "https:" && HOSTS_REDIRECT_PERMITIDOS.includes(alvo.hostname)) {
+      return alvo.toString();
+    }
+  } catch { /* redirect invalido - cai no fallback abaixo */ }
+  return `https://${HOST_DASHBOARD}/`;
+}
+
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -63,9 +81,7 @@ export async function handleLoginSubmit(request, env) {
   }
 
   const token = await criarToken(env, email);
-  const destino = redirect && redirect.startsWith("/")
-    ? `https://${HOST_DASHBOARD}${redirect}`
-    : `https://${HOST_DASHBOARD}/`;
+  const destino = destinoSeguro(redirect);
 
   return new Response(null, {
     status: 302,
