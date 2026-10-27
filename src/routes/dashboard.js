@@ -584,6 +584,7 @@ async function renderLoja(env, lojaId, recemConectado) {
   .atalho-pesquisa { --atalho-cor: var(--acento); }
   .atalho-aptos { --atalho-cor: var(--ok); }
   .atalho-saude { --atalho-cor: #a78bfa; }
+  .atalho-duplicador { --atalho-cor: #38bdf8; }
   .busca-linha { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 1.75rem; }
   .atalhos-linha { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 
@@ -624,6 +625,7 @@ async function renderLoja(env, lojaId, recemConectado) {
       <a class="atalho atalho-missoes" href="/missoes?loja=${encodeURIComponent(lojaId)}">${icone("alvo")} Missões</a>
       <a class="atalho atalho-pesquisa" href="/pesquisa?loja=${encodeURIComponent(lojaId)}">${icone("busca")} Pesquisa</a>
       <a class="atalho atalho-aptos" href="/aptos-full?loja=${encodeURIComponent(lojaId)}">${icone("setaAlvo")} Aptos Full</a>
+      <a class="atalho atalho-duplicador" href="/sugestoes-duplicador?loja=${encodeURIComponent(lojaId)}">${icone("setaAlvo")} Sugestões do Duplicador</a>
       <a class="atalho atalho-saude" href="/saude">${icone("engrenagem")} Saúde</a>
     </div>
   </div>

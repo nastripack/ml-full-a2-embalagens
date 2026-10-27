@@ -6,6 +6,7 @@ import { handleSaude } from "./routes/saude.js";
 import { handleMissoes, handleMissaoStatus } from "./routes/missoes.js";
 import { handlePesquisa } from "./routes/pesquisa.js";
 import { handleAptosFull } from "./routes/aptos.js";
+import { handleSugestoesDuplicador } from "./routes/sugestoesDuplicador.js";
 import { handleLoginPage, handleLoginSubmit, handleLogout } from "./routes/login.js";
 import { verificarToken, lerCookie } from "./lib/sessao.js";
 import { enviarAlertaFalha } from "./lib/alertas.js";
@@ -47,6 +48,7 @@ export default {
       if (url.pathname === "/missoes") return handleMissoes(request, env);
       if (url.pathname === "/pesquisa") return handlePesquisa(request, env);
       if (url.pathname === "/aptos-full") return handleAptosFull(request, env);
+      if (url.pathname === "/sugestoes-duplicador") return handleSugestoesDuplicador(request, env);
       if (/^\/missoes\/\d+\/status$/.test(url.pathname) && request.method === "POST") return handleMissaoStatus(request, env);
       if (url.pathname === "/") return handleDashboard(request, env);
 
